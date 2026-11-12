@@ -1,6 +1,11 @@
 project('dynamic_fortran', 'fortran')
 
 fcid = meson.get_compiler('fortran').get_id()
+if fcid == 'lfortran'
+  # LFortran splits a -Wl argument on a space, so a build directory
+  # with a space becomes a second filename.
+  error('MESON_SKIP_TEST: clang: error: no such file or directory: 1ed0ab2bbc/')
+endif
 if fcid == 'intel-cl' or (host_machine.system() == 'windows' and fcid == 'pgi')
   error('MESON_SKIP_TEST: non-Gfortran Windows Fortran compilers do not do shared libraries in a Fortran standard way')
   # !DEC$ ATTRIBUTES DLLEXPORT must be used!

@@ -10,7 +10,12 @@ fc = meson.get_compiler('fortran')
 
 executable('stdnone', 'std95.f90')
 
-executable('std_legacy', 'legacy.f', override_options : ['fortran_std=legacy'])
+if fc.get_id() == 'lfortran'
+  # code generation error: a DO loop whose DO variable is not of integer type is not supported yet
+  message('SKIP: a DO loop whose DO variable is not of integer type is not supported yet')
+else
+  executable('std_legacy', 'legacy.f', override_options : ['fortran_std=legacy'])
+endif
 
 executable('std_95', 'std95.f90', override_options : ['fortran_std=f95'])
 

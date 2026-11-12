@@ -23,6 +23,7 @@ These are return values of the `get_id` (Compiler family) and
 | intel-llvm    | Intel oneAPI LLVM-based compiler            |                 |
 | intel-llvm-cl | Intel oneAPI LLVM-based compiler (Windows)  | msvc            |
 | lcc       | Elbrus C/C++/Fortran Compiler    |                 |
+| lfortran  | LFortran                         |                 |
 | llvm      | LLVM-based compiler (Swift, D)   |                 |
 | llvm-flang| Flang Fortran compiler (LLVM-based) |              |
 | mono      | Xamarin C# compiler              |                 |

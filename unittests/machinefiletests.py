@@ -470,10 +470,10 @@ class NativeFileTests(BasePlatformTests):
     def test_fortran_compiler(self):
         def cb(comp):
             if comp.id == 'lcc':
-                if shutil.which('lfortran'):
-                    return 'lfortran', 'lcc'
                 raise SkipTest('No alternate Fortran implementation.')
             elif comp.id == 'gcc':
+                if shutil.which('lfortran'):
+                    return 'lfortran', 'lfortran'
                 if shutil.which('ifort'):
                     # There is an ICC for windows (windows build, linux host),
                     # but we don't support that ATM so let's not worry about it.

@@ -12,6 +12,9 @@ endif
 if host_machine.system() == 'darwin'
   error('MESON_SKIP_TEST macOS does not support OpenMP.')
 endif
+if fc.get_id() == 'lfortran'
+  error('MESON_SKIP_TEST: Dependency "openmp" not found (tried system)')
+endif
 
 openmp = dependency('openmp')
 

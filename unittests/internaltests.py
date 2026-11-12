@@ -478,6 +478,40 @@ InstalledDir: /usr/bin'''), '14.0.0-1ubuntu1.1')
         self.assertEqual(cc.get_import_std_args(base + ['/Isome', '/Od', '/D_HAS_EXCEPTIONS']),
                          ['/D_HAS_EXCEPTIONS=1', '/EHsc', '/MD', '/permissive-', '/std:c++latest', '/utf-8'])
 
+    def test_lfortran_version_string(self):
+        # LFortran 0.69.0 --version. search_version must take the compiler
+        # version, not the LLVM version further down the banner.
+        from mesonbuild.compilers.fortran import LFortranFortranCompiler
+        from mesonbuild.linkers.linkers import LFortranDynamicLinker
+        from mesonbuild.utils.universal import search_version
+        out = (
+            'LFortran version: 0.69.0\n'
+            'Status: alpha (expected to fail on third-party codes)\n'
+            'Platform: Linux\n'
+            'LLVM: 21.1.7\n'
+            'Default target: x86_64-conda-linux-gnu\n'
+        )
+        self.assertTrue(out.startswith('LFortran') or 'LFortran version' in out)
+        self.assertEqual(search_version(out), '0.69.0')
+        self.assertNotIn('flang', out)
+        compiler = object.__new__(LFortranFortranCompiler)
+        self.assertEqual(compiler.get_module_outdir_args('dir'), ['-Jdir'])
+        self.assertEqual(compiler.get_preprocess_only_args(), ['--cpp', '-E'])
+        self.assertEqual(compiler.gnu_symbol_visibility_args('default'), [])
+        self.assertEqual(compiler.get_no_optimization_args(), ['-O0'])
+        self.assertEqual(compiler.get_always_args(), [
+            '--implicit-interface',
+            '--fixed-form-infer',
+            '--separate-compilation',
+            '--print-leading-space',
+        ])
+        self.assertEqual(compiler.get_werror_args(), [])
+        self.assertEqual(compiler.get_optimization_args('2'), ['-O2'])
+        self.assertEqual(LFortranFortranCompiler.id, 'lfortran')
+        self.assertNotIn('openmp_flags', LFortranFortranCompiler.__dict__)
+        self.assertEqual(LFortranDynamicLinker.get_std_shared_lib_args(None), ['--shared'])
+        self.assertEqual(LFortranDynamicLinker.get_pie_args(None), [])
+
     def test_intel_fortran_standard_args(self):
         from mesonbuild.compilers.fortran import (
             IntelFortranCompiler, IntelLLVMFortranCompiler,

@@ -953,6 +953,19 @@ def detect_fortran_compiler(env: 'Environment', for_machine: MachineChoice) -> C
                                               version, for_machine)
                 return linker
 
+            # Before the flang checks: "LFortran" is not the LLVM flang driver.
+            # lfortran -Wl,--version opens the interactive prompt instead of
+            # printing a linker banner, so the linker is not probed.
+            if out.startswith('LFortran') or 'LFortran version' in out:
+                cls = fortran.LFortranFortranCompiler
+                env.add_lang_args(cls.language, cls, for_machine)
+                linker = linkers.LFortranDynamicLinker(
+                    compiler, env, for_machine, cls.LINKER_OPTION_STYLE, [],
+                    version='unknown version')
+                return cls(
+                    compiler, version, for_machine, env,
+                    full_version=full_version, linker=linker)
+
             if 'flang-new' in out or 'flang LLVM compiler' in help_out:
                 cls = fortran.LlvmFlangFortranCompiler
                 linker = _get_linker_try_windows(cls)
