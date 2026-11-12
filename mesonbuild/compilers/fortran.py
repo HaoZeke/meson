@@ -791,6 +791,12 @@ class LFortranFortranCompiler(FortranCompiler):
         # -fvisibility is rejected. The keyword is a no-op.
         return []
 
+    def openmp_flags(self) -> T.List[str]:
+        # `--openmp` is accepted, but 0.69 does not define `_OPENMP` and the
+        # driver does not link libgomp, so the dependency is not found.
+        raise mesonlib.EnvironmentException(
+            'LFortran does not provide a usable OpenMP dependency')
+
     def language_stdlib_only_link_flags(self) -> T.List[str]:
         # A C link of a Fortran object does not get the runtime that the
         # LFortran driver would have added itself.

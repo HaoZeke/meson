@@ -4,7 +4,11 @@ project('Fortran coarray', 'fortran',
 fc = meson.get_compiler('fortran')
 
 if fc.get_id() == 'lfortran'
-  error('MESON_SKIP_TEST: Dependency "coarray" not found (tried system)')
+  # Probe the dependency so a missing runtime is reported as not-found.
+  coarray_probe = dependency('coarray', required: false)
+  if not coarray_probe.found()
+    error('MESON_SKIP_TEST: Coarray support not available: LFortran does not link a coarray runtime.')
+  endif
 endif
 if ['pgi', 'flang'].contains(fc.get_id())
   error('MESON_SKIP_TEST: At least through PGI 19.10 and Flang 7.1 do not support Fortran Coarrays.')

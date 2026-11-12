@@ -13,7 +13,11 @@ if host_machine.system() == 'darwin'
   error('MESON_SKIP_TEST macOS does not support OpenMP.')
 endif
 if fc.get_id() == 'lfortran'
-  error('MESON_SKIP_TEST: Dependency "openmp" not found (tried system)')
+  # Probe the dependency so a missing runtime is reported as not-found.
+  openmp_probe = dependency('openmp', required: false)
+  if not openmp_probe.found()
+    error('MESON_SKIP_TEST: OpenMP support not available: LFortran does not provide a usable OpenMP dependency')
+  endif
 endif
 
 openmp = dependency('openmp')

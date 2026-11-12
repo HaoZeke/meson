@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import typing as T
 
+from .. import mlog
 from .base import DependencyCandidate, DependencyMethods, detect_compiler, SystemDependency
 from .cmake import CMakeDependency
 from .detect import packages
@@ -81,3 +82,8 @@ class CoarrayDependency(SystemDependency):
         elif cid == 'nagfor':
             # NAG doesn't require any special arguments for Coarray
             self.is_found = True
+        elif cid == 'lfortran':
+            # `--coarray` references PRIF symbols this build does not link.
+            self.is_found = False
+            mlog.warning('Coarray support not available: LFortran does not link a coarray runtime.',
+                         fatal=False)
