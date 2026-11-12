@@ -2,9 +2,6 @@ project('submodule single level', 'fortran',
   meson_version: '>= 0.50.0')
 
 fortc = meson.get_compiler('fortran')
-if fortc.get_id() == 'lfortran'
-  error('MESON_SKIP_TEST: undefined reference to __module_parent_pi2tau')
-endif
 if fortc.get_id() == 'gcc' and fortc.version().version_compare('<6.0')
   error('MESON_SKIP_TEST need gfortran >= 6.0 for submodule support')
 endif
