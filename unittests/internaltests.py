@@ -509,8 +509,60 @@ InstalledDir: /usr/bin'''), '14.0.0-1ubuntu1.1')
         self.assertEqual(compiler.get_optimization_args('2'), ['-O2'])
         self.assertEqual(LFortranFortranCompiler.id, 'lfortran')
         self.assertNotIn('openmp_flags', LFortranFortranCompiler.__dict__)
+        self.assertEqual(compiler.module_name_to_filename('parent'), 'parent.mod')
+        self.assertEqual(compiler.module_name_to_filename('parent_child'), 'parent@child.smod')
+        self.assertEqual(compiler.submodule_filename(['parent'], 'child'), 'parent@child.smod')
+        # Nested submodule (a1:a2) a3 is the immediate parent, not the ancestor.
+        self.assertEqual(compiler.submodule_filename(['a1', 'a2'], 'a3'), 'a2@a3.smod')
         self.assertEqual(LFortranDynamicLinker.get_std_shared_lib_args(None), ['--shared'])
         self.assertEqual(LFortranDynamicLinker.get_pie_args(None), [])
+
+    def test_lfortran_module_dependency_scanner(self):
+        # LFortran writes submodule (a1:a2) a3 to a2@a3.smod. GFortran writes a1@a3.smod.
+        from mesonbuild.backend.ninjabackend import TargetDependencyScannerInfo
+        from mesonbuild.compilers.fortran import GnuFortranCompiler
+        from mesonbuild.scripts.depscan import DependencyScanner
+
+        gfortran = object.__new__(GnuFortranCompiler)
+        self.assertEqual(gfortran.submodule_filename(['a1', 'a2'], 'a3'), 'a1@a3.smod')
+
+        a1 = 'module a1\ninterface\nmodule subroutine hello()\nend subroutine\nend interface\nend module\n'
+        a2 = 'submodule (a1) a2\ncontains\nmodule procedure hello\nend procedure\nend submodule\n'
+        a3 = 'submodule (a1:a2) a3\ncontains\nend submodule\n'
+
+        def scanned(compiler_id: str) -> list:
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                sources = []
+                for name, text in (('a1.f90', a1), ('a2.f90', a2), ('a3.f90', a3)):
+                    path = root / name
+                    path.write_text(text, encoding='utf-8')
+                    sources.append((str(path), 'fortran'))
+                info = TargetDependencyScannerInfo(
+                    'priv',
+                    {src: src + '.o' for src, _lang in sources},
+                    sources,
+                    fortran_compiler_id=compiler_id,
+                )
+                pickle_path = root / 'scan.dat'
+                with open(pickle_path, 'wb') as handle:
+                    pickle.dump(info, handle)
+                outfile = root / 'depscan.json'
+                self.assertEqual(DependencyScanner(str(pickle_path), str(outfile)).scan(), 0)
+                description = json.loads(outfile.read_text(encoding='utf-8'))
+            found = []
+            for rule in description['rules']:
+                found.extend(rule.get('outputs', []))
+            return found
+
+        lfortran_outs = scanned('lfortran')
+        gcc_outs = scanned('gcc')
+        self.assertIn(os.path.join('priv', 'a1.mod'), lfortran_outs)
+        self.assertIn(os.path.join('priv', 'a1@a2.smod'), lfortran_outs)
+        self.assertIn(os.path.join('priv', 'a2@a3.smod'), lfortran_outs)
+        self.assertNotIn(os.path.join('priv', 'a1@a3.smod'), lfortran_outs)
+        self.assertIn(os.path.join('priv', 'a1@a3.smod'), gcc_outs)
+        self.assertNotIn(os.path.join('priv', 'a2@a3.smod'), gcc_outs)
 
     def test_intel_fortran_standard_args(self):
         from mesonbuild.compilers.fortran import (

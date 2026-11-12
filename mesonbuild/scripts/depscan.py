@@ -77,6 +77,9 @@ class DependencyScanner:
         self.exports: T.Dict[str, str] = {}
         self.imports: collections.defaultdict[str, T.List[str]] = collections.defaultdict(list)
         self.sources_with_exports: T.List[str] = []
+        # Source path -> immediate parent module of a submodule.
+        self.immediate_parent: T.Dict[str, str] = {}
+        self.fortran_compiler_id = getattr(self.target_data, 'fortran_compiler_id', '') or ''
 
     def scan_file(self, fname: str, lang: Literal['cpp', 'fortran']) -> None:
         if lang == 'fortran':
@@ -114,9 +117,12 @@ class DependencyScanner:
                 #  - requires a1@a2.smod
                 #  - produces a1@a3.smod
                 parent_module_name_full = submodule_export_match.group(1).lower()
-                parent_module_name = parent_module_name_full.split(':')[0]
+                parent_parts = parent_module_name_full.split(':')
+                parent_module_name = parent_parts[0]
                 submodule_name = submodule_export_match.group(2).lower()
                 concat_name = f'{parent_module_name}:{submodule_name}'
+                # ``submodule (a1:a2) a3`` has immediate parent a2.
+                self.immediate_parent[fname] = parent_parts[-1]
                 self.sources_with_exports.append(fname)
                 self.provided_by[concat_name] = fname
                 self.exports[fname] = concat_name
@@ -148,12 +154,20 @@ class DependencyScanner:
     def module_name_for(self, src: str, lang: Literal['cpp', 'fortran']) -> str:
         if lang == 'fortran':
             exported = self.exports[src]
-            # Module foo:bar goes to a file name foo@bar.smod
-            # Module Foo goes to a file name foo.mod
-            namebase = exported.replace(':', '@')
+            # Module Foo goes to foo.mod.
+            # GFortran submodule (a1:a2) a3 goes to a1@a3.smod (ancestor).
+            # LFortran writes a2@a3.smod (immediate parent) instead.
+            # A single-level submodule is parent@child.smod for both.
             if ':' in exported:
+                ancestor, sub = exported.split(':', 1)
+                if self.fortran_compiler_id == 'lfortran':
+                    parent = self.immediate_parent.get(src, ancestor)
+                    namebase = f'{parent}@{sub}'
+                else:
+                    namebase = f'{ancestor}@{sub}'
                 extension = 'smod'
             else:
+                namebase = exported
                 extension = 'mod'
             return os.path.join(self.target_data.private_dir, f'{namebase}.{extension}')
         return '{}.ifc'.format(self.exports[src])

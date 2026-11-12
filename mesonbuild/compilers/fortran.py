@@ -92,9 +92,12 @@ class FortranCompiler(CLikeCompiler, Compiler):
         return parameter_list
 
     def module_name_to_filename(self, module_name: str) -> str:
-        if '_' in module_name:  # submodule
+        if '_' in module_name:  # submodule logical name ancestor_child
             s = module_name.lower()
-            if self.id in {'gcc', 'intel', 'intel-cl'}:
+            # LFortran uses the same ancestor@child.smod name as gfortran
+            # when the immediate parent is the ancestor. A nested submodule
+            # is named from the immediate parent; see submodule_filename().
+            if self.id in {'gcc', 'intel', 'intel-cl', 'lfortran'}:
                 filename = s.replace('_', '@') + '.smod'
             elif self.id in {'pgi', 'flang'}:
                 filename = s.replace('_', '-') + '.mod'
@@ -104,6 +107,20 @@ class FortranCompiler(CLikeCompiler, Compiler):
             filename = module_name.lower() + '.mod'
 
         return filename
+
+    def submodule_filename(self, parents: T.List[str], name: str) -> str:
+        """File produced for ``submodule (parents) name``.
+
+        ``parents`` is the ancestry from the submodule statement, so
+        ``submodule (a1:a2) a3`` passes ``['a1', 'a2']``. GFortran names
+        that file ``a1@a3.smod`` (ancestor). LFortran names it
+        ``a2@a3.smod`` (immediate parent). A single-level submodule
+        matches gfortran: ``parent@child.smod``.
+        """
+        if self.id == 'lfortran':
+            return f'{parents[-1].lower()}@{name.lower()}.smod'
+        ancestor = parents[0].lower()
+        return self.module_name_to_filename(ancestor + '_' + name)
 
     def find_library(self, libname: str, extra_dirs: T.List[str], libtype: LibType = LibType.PREFER_SHARED,
                      lib_prefix_warning: bool = True, ignore_system_dirs: bool = False,
