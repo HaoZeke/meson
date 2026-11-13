@@ -723,6 +723,10 @@ class LFortranFortranCompiler(FortranCompiler):
 
     id = 'lfortran'
     LINKER_OPTION_STYLE = ManyInOneLinkerOptionStyle('-Wl,', ',')
+    # None means the probe ran and the feature is not usable. The
+    # attribute is absent until the first probe.
+    _lfortran_openmp_date: T.Optional[str]
+    _lfortran_coarray_args: T.Optional[T.List[str]]
 
     def __init__(self, exelist: T.List[str], version: str, for_machine: MachineChoice,
                  env: Environment, linker: T.Optional['DynamicLinker'] = None,
@@ -773,6 +777,82 @@ class LFortranFortranCompiler(FortranCompiler):
     def gnu_symbol_visibility_args(self, vistype: str) -> T.List[str]:
         # -fvisibility is rejected. The keyword is a no-op.
         return []
+
+    def _lfortran_openmp_usable(self) -> T.Optional[str]:
+        """Return the ``_OPENMP`` date when ``--openmp`` can be used.
+
+        The preprocessor must expand ``_OPENMP`` under ``--openmp --cpp``,
+        and a program that calls ``omp_get_num_threads`` must link. Either
+        failure means the dependency is not found.
+        """
+        if hasattr(self, '_lfortran_openmp_date'):
+            return self._lfortran_openmp_date
+        flags = ['--openmp']
+        date: T.Optional[str] = None
+        try:
+            value, _cached = self.get_define('_OPENMP', '', flags, None, disable_cache=True)
+        except mesonlib.MesonException:
+            value = None
+        if value and str(value).strip().isdigit():
+            code = 'use omp_lib\ninteger :: n\nn = omp_get_num_threads()\nend\n'
+            if self._probe_link(code, flags):
+                date = str(value).strip()
+        self._lfortran_openmp_date = date
+        return date
+
+    def openmp_flags(self) -> T.List[str]:
+        if not self._lfortran_openmp_usable():
+            raise mesonlib.EnvironmentException(
+                'LFortran does not provide a usable OpenMP dependency')
+        return ['--openmp']
+
+    def _lfortran_coarray_flags(self) -> T.Optional[T.List[str]]:
+        """Flags that link ``this_image``, ``num_images`` and ``sync all``.
+
+        ``--coarray`` is used when that runtime links. Otherwise the
+        compiler's built-in single image is accepted. ``None`` means neither
+        links.
+        """
+        if hasattr(self, '_lfortran_coarray_args'):
+            stored = self._lfortran_coarray_args
+            return None if stored is None else list(stored)
+        code = 'integer :: i\ni = this_image()\ni = num_images()\nsync all\nend\n'
+        chosen: T.Optional[T.List[str]] = None
+        for flags in (['--coarray'], []):
+            if self._probe_link(code, flags):
+                chosen = flags
+                break
+        self._lfortran_coarray_args = chosen
+        return None if chosen is None else list(chosen)
+
+    def _probe_link(self, code: str, extra_args: T.List[str]) -> bool:
+        """Link ``code`` in a temporary directory that does not contain a space.
+
+        ``Compiler.links`` writes ``-o`` inside the build directory, so a
+        driver that splits on spaces fails every probe for that reason.
+        """
+        import subprocess
+        import tempfile
+        if not getattr(self, 'exelist', None):
+            return False
+        try:
+            with tempfile.TemporaryDirectory(prefix='meson-probe-') as tmp:
+                src = os.path.join(tmp, 'probe.f90')
+                out = os.path.join(tmp, 'probe.exe')
+                with open(src, 'w', encoding='utf-8') as handle:
+                    handle.write(code if code.endswith('\n') else code + '\n')
+                command = list(self.exelist) + [src, '-o', out]
+                command += list(extra_args) + self.get_always_args()
+                result = subprocess.run(
+                    command,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    encoding='utf-8',
+                )
+                return result.returncode == 0
+        except OSError:
+            return False
 
     def language_stdlib_only_link_flags(self) -> T.List[str]:
         # A C link of a Fortran object does not get the runtime that the
