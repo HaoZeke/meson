@@ -465,6 +465,12 @@ class IntelFortranCompiler(IntelGnuLikeCompiler, FortranCompiler):
     def get_dependency_gen_args(self, outtarget: str, outfile: str) -> T.List[str]:
         return ['-gen-dep=' + outtarget, '-gen-depformat=make']
 
+    def gnu_symbol_visibility_args(self, vistype: str) -> T.List[str]:
+        # -fvisibility=hidden marks the compiler's iso_c_binding helpers
+        # (c_f_pointer_set_desc*) hidden. The runtime defines them as
+        # global symbols, so the link fails. Leave the flag off.
+        return []
+
 
 class IntelLLVMFortranCompiler(IntelLLVMLikeCompiler, IntelFortranCompiler):
 
@@ -482,6 +488,12 @@ class IntelLLVMFortranCompiler(IntelLLVMLikeCompiler, IntelFortranCompiler):
         return ['-preprocess-only']
 
     def get_dependency_gen_args(self, outtarget: str, outfile: str) -> T.List[str]:
+        return []
+
+    def gnu_symbol_visibility_args(self, vistype: str) -> T.List[str]:
+        # IntelLLVMLikeCompiler would pass -fvisibility. ifx then emits
+        # a hidden reference to c_f_pointer_set_desc*, which libifcore
+        # does not define as hidden.
         return []
 
 class IntelClFortranCompiler(IntelVisualStudioLikeCompiler, FortranCompiler):

@@ -65,6 +65,17 @@ from .helpers import IS_CI, chdir, skipIfNoPkgconfig
 
 class InternalTests(unittest.TestCase):
 
+    def test_intel_fortran_ignores_symbol_visibility(self):
+        # python.extension_module asks for hidden visibility. ifx must
+        # not get -fvisibility=hidden: that makes c_f_pointer's runtime
+        # helper a hidden undef and the link fails.
+        from mesonbuild.compilers.fortran import IntelFortranCompiler, IntelLLVMFortranCompiler
+        classic = object.__new__(IntelFortranCompiler)
+        ifx = object.__new__(IntelLLVMFortranCompiler)
+        self.assertEqual(classic.gnu_symbol_visibility_args('hidden'), [])
+        self.assertEqual(ifx.gnu_symbol_visibility_args('hidden'), [])
+        self.assertEqual(ifx.gnu_symbol_visibility_args('default'), [])
+
     @unittest.skipIf(is_windows() or is_cygwin() or os.geteuid() == 0, 'needs a directory the test user cannot traverse')
     def test_cmake_user_registry_unreadable_home(self):
         from mesonbuild.dependencies.cmake import CMakeDependency
