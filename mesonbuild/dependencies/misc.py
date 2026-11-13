@@ -168,14 +168,31 @@ class OpenMPDependency(SystemDependency):
                 mlog.debug('This can be caused by flags such as gcc\'s `-fdirectives-only`, which affect preprocessor behavior.')
             return
 
-        # Flang has omp_lib.h
+        # Flang has omp_lib.h. LLVM flang also ships the omp_lib module, and
+        # on some installs that header is not on the preprocessor search path
+        # even though `use omp_lib` compiles.
         header_names = ('omp.h', 'omp_lib.h')
         for name in header_names:
             if self.clib_compiler.has_header(name, '', dependencies=[self], disable_cache=True)[0]:
                 self.is_found = True
                 break
         else:
-            mlog.warning('OpenMP found but omp.h missing.', fatal=False)
+            if self._fortran_openmp_module():
+                self.is_found = True
+            else:
+                mlog.warning('OpenMP found but omp.h missing.', fatal=False)
+
+    def _fortran_openmp_module(self) -> bool:
+        if self.language != 'fortran':
+            return False
+        try:
+            return self.clib_compiler.compiles(
+                'use omp_lib\nend\n',
+                extra_args=self.compile_args,
+                disable_cache=True,
+            )[0]
+        except mesonlib.MesonException:
+            return False
 
 packages['openmp'] = OpenMPDependency
 
