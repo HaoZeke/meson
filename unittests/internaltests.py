@@ -528,6 +528,45 @@ InstalledDir: /usr/bin'''), '14.0.0-1ubuntu1.1')
         self.assertEqual(LFortranDynamicLinker.get_std_shared_lib_args(None), ['--shared'])
         self.assertEqual(LFortranDynamicLinker.get_pie_args(None), [])
 
+    def test_lfortran_std_and_build_tree_runtime(self):
+        import tempfile
+        from mesonbuild.compilers.fortran import LFortranFortranCompiler
+        compiler = object.__new__(LFortranFortranCompiler)
+        compiler.language = 'fortran'
+        compiler.for_machine = MachineChoice.HOST
+        choices = compiler.get_options()[compiler.form_compileropt_key('std')].choices
+        self.assertIn('legacy', choices)
+        self.assertIn('f95', choices)
+        self.assertIn('none', choices)
+        with mock.patch.object(compiler, 'get_compileropt_value', return_value='legacy'):
+            self.assertEqual(compiler.get_option_std_args(None), ['--std=legacy'])
+        with mock.patch.object(compiler, 'get_compileropt_value', return_value='f95'):
+            self.assertEqual(compiler.get_option_std_args(None), [])
+        with tempfile.TemporaryDirectory() as root:
+            bindir = os.path.join(root, 'src', 'bin')
+            runtime = os.path.join(root, 'src', 'runtime')
+            os.makedirs(bindir)
+            os.makedirs(runtime)
+            compiler_path = os.path.join(bindir, 'lfortran')
+            with open(compiler_path, 'w', encoding='utf-8') as handle:
+                handle.write('')
+            open(os.path.join(runtime, 'liblfortran_runtime.so'), 'w').close()
+            compiler.exelist = [compiler_path]
+            self.assertEqual(compiler._runtime_libdir(), runtime)
+            flags = compiler.language_stdlib_only_link_flags()
+            self.assertIn('-L' + runtime, flags)
+            self.assertIn('-llfortran_runtime', flags)
+            installed = os.path.join(root, 'share', 'lfortran', 'lib')
+            os.makedirs(installed)
+            prefix_bin = os.path.join(root, 'bin')
+            os.makedirs(prefix_bin)
+            installed_compiler = os.path.join(prefix_bin, 'lfortran')
+            with open(installed_compiler, 'w', encoding='utf-8') as handle:
+                handle.write('')
+            open(os.path.join(installed, 'liblfortran_runtime.so'), 'w').close()
+            compiler.exelist = [installed_compiler]
+            self.assertEqual(compiler._runtime_libdir(), installed)
+
     def test_lfortran_module_dependency_scanner(self):
         # LFortran writes submodule (a1:a2) a3 to a2@a3.smod. GFortran writes a1@a3.smod.
         from mesonbuild.backend.ninjabackend import TargetDependencyScannerInfo

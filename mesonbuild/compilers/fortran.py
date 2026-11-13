@@ -769,6 +769,22 @@ class LFortranFortranCompiler(FortranCompiler):
             '--print-leading-space',
         ]
 
+    def get_options(self) -> 'MutableKeyedOptionDictType':
+        opts = FortranCompiler.get_options(self)
+        # pdfo sets fortran_std=legacy. The driver implements lf, f23
+        # and legacy. The numbered names have to be legal choices or
+        # Meson aborts at configure time; they are not passed through.
+        self._update_language_stds(
+            opts, ['legacy', 'f95', 'f2003', 'f2008', 'f2018'])
+        return opts
+
+    def get_option_std_args(self, target: BuildTarget, subproject: T.Optional[str] = None) -> T.List[str]:
+        std = self.get_compileropt_value('std', target, subproject)
+        # --std=f95 and the other numbered names are a hard error.
+        if std == 'legacy':
+            return ['--std=legacy']
+        return []
+
     def get_module_outdir_args(self, path: str) -> T.List[str]:
         return ['-J' + path]
 
@@ -900,11 +916,21 @@ class LFortranFortranCompiler(FortranCompiler):
         found = shutil.which(exe) or exe
         if not found or not os.path.isfile(found):
             return None
-        root = os.path.dirname(os.path.dirname(os.path.realpath(found)))
-        libdir = os.path.join(root, 'share', 'lfortran', 'lib')
-        if not os.path.isdir(libdir):
-            return None
-        for name in os.listdir(libdir):
-            if name.startswith('liblfortran_runtime.so'):
-                return libdir
+        found = os.path.realpath(found)
+        bindir = os.path.dirname(found)
+        prefix = os.path.dirname(bindir)
+        # An installed compiler is <prefix>/bin/lfortran and the runtime
+        # is <prefix>/share/lfortran/lib. A build tree is
+        # <build>/src/bin/lfortran and the runtime is <build>/src/runtime.
+        candidates = [
+            os.path.join(prefix, 'share', 'lfortran', 'lib'),
+            os.path.join(prefix, 'runtime'),
+            bindir,
+        ]
+        for libdir in candidates:
+            if not os.path.isdir(libdir):
+                continue
+            for name in os.listdir(libdir):
+                if name.startswith('liblfortran_runtime.so'):
+                    return libdir
         return None
