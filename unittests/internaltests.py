@@ -506,7 +506,15 @@ InstalledDir: /usr/bin'''), '14.0.0-1ubuntu1.1')
             '--print-leading-space',
         ])
         self.assertEqual(compiler.get_werror_args(), [])
-        self.assertEqual(compiler.get_optimization_args('2'), ['-O2'])
+        # -O is ignored. Requested optimization is --fast, without
+        # fast-math. plain and 0 pass nothing.
+        self.assertEqual(compiler.get_optimization_args('plain'), [])
+        self.assertEqual(compiler.get_optimization_args('0'), [])
+        for level in ('g', '1', '2', '3', 's'):
+            self.assertEqual(
+                compiler.get_optimization_args(level),
+                ['--fast', '--no-fast-math'],
+            )
         self.assertEqual(LFortranFortranCompiler.id, 'lfortran')
         compiler.get_define = lambda *a, **k: (None, False)
         with self.assertRaises(EnvironmentException) as exc:

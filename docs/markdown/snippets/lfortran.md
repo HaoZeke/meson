@@ -7,3 +7,7 @@ id `lfortran`. Shared libraries are linked with `--shared`. The
 defines `_OPENMP` and `omp_get_num_threads` links. `dependency('coarray')`
 is found only when `this_image`, `num_images` and `sync all` link.
 A C link of Fortran objects is given `liblfortran_runtime`.
+LFortran ignores `-O`. A requested optimization level, including
+`buildtype=release`, passes `--fast --no-fast-math` instead.
+`--fast` selects the optimizing backend, and `--no-fast-math`
+keeps NaN and Inf.

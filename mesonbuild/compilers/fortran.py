@@ -776,8 +776,21 @@ class LFortranFortranCompiler(FortranCompiler):
         # -cpp is parsed as -c, and -P is not a preprocessor flag.
         return ['--cpp', '-E']
 
+    def get_optimization_args(self, optimization_level: str) -> T.List[str]:
+        # ``-O`` is parsed and ignored. ``--fast`` is the switch that
+        # selects the optimizing backend: LLVM's aggressive code
+        # generator, noalias on dummy arguments, and no per-access
+        # bounds checks. ``--no-fast-math`` keeps NaN and Inf, which
+        # ``-O3`` does not relax on the other Fortran compilers.
+        # There is no intermediate level, so every requested
+        # optimization uses that pair. ``plain`` and ``0`` stay off.
+        if optimization_level in {'plain', '0'}:
+            return []
+        return ['--fast', '--no-fast-math']
+
     def get_no_optimization_args(self) -> T.List[str]:
-        # -U_FORTIFY_SOURCE is not an LFortran flag.
+        # -U_FORTIFY_SOURCE is not an LFortran flag. -O0 is ignored;
+        # leaving ``--fast`` unset is what keeps the backend unoptimized.
         return ['-O0']
 
     def get_werror_args(self) -> T.List[str]:
