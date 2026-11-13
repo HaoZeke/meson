@@ -478,6 +478,25 @@ InstalledDir: /usr/bin'''), '14.0.0-1ubuntu1.1')
         self.assertEqual(cc.get_import_std_args(base + ['/Isome', '/Od', '/D_HAS_EXCEPTIONS']),
                          ['/D_HAS_EXCEPTIONS=1', '/EHsc', '/MD', '/permissive-', '/std:c++latest', '/utf-8'])
 
+    def test_intel_fortran_openmp_links_iomp5(self):
+        import tempfile
+        from mesonbuild.compilers.fortran import IntelFortranCompiler, IntelLLVMFortranCompiler
+        with tempfile.TemporaryDirectory() as root:
+            bindir = os.path.join(root, 'bin')
+            libdir = os.path.join(root, 'lib')
+            os.makedirs(bindir)
+            os.makedirs(libdir)
+            compiler_path = os.path.join(bindir, 'ifx')
+            with open(compiler_path, 'w', encoding='utf-8') as handle:
+                handle.write('')
+            for compiler_class in (IntelFortranCompiler, IntelLLVMFortranCompiler):
+                compiler = object.__new__(compiler_class)
+                compiler.exelist = [compiler_path]
+                flags = compiler.openmp_link_flags()
+                self.assertIn('-L' + os.path.realpath(libdir), flags)
+                self.assertIn('-liomp5', flags)
+                self.assertNotIn('-fopenmp', flags)
+
     def test_intel_fortran_standard_args(self):
         from mesonbuild.compilers.fortran import (
             IntelFortranCompiler, IntelLLVMFortranCompiler,
