@@ -124,6 +124,7 @@ class OpenMPDependency(SystemDependency):
         '200805': '3.0',
         '200505': '2.5',
         '200203': '2.0',
+        '199911': '1.1',  # OpenMP Fortran 1.1, November 1999. flang's default.
         '199810': '1.0',
     }
 

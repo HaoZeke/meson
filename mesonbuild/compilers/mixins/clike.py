@@ -640,12 +640,42 @@ class CLikeCompiler(Compiler):
             if p.returncode != 0:
                 raise mesonlib.EnvironmentException(f'Could not get define {dname!r}')
 
-        # Get the preprocessed value between the delimiters
-        star_idx = p.stdout.find(delim_start)
-        end_idx = p.stdout.rfind(delim_end)
-        if (star_idx == -1) or (end_idx == -1) or (star_idx == end_idx):
+        define_value = self._define_value_from_preprocessor_output(p.stdout, sentinel_undef)
+        return define_value, cached
+
+    @staticmethod
+    def _define_value_from_preprocessor_output(stdout: str, sentinel_undef: str) -> T.Optional[str]:
+        '''Value between the define delimiters, or None when the macro is undefined.
+
+        The probe writes a newline after the start token and before the end
+        token. gcc, clang and ifx keep that shape. flang's ``-cpp -E -P``
+        puts the value on the next line and indents the end token:
+
+            "MESON_GET_DEFINE_DELIMITER_START"
+            199911
+                  "MESON_GET_DEFINE_DELIMITER_END"
+
+        That is valid preprocessor output, so whitespace and newlines around
+        the tokens are not part of the macro.
+        '''
+        start_token = '"MESON_GET_DEFINE_DELIMITER_START"'
+        end_token = '"MESON_GET_DEFINE_DELIMITER_END"'
+        star_idx = stdout.find(start_token)
+        end_idx = stdout.rfind(end_token)
+        if star_idx == -1 or end_idx == -1 or end_idx <= star_idx:
             raise mesonlib.MesonBugException('Delimiters not found in preprocessor output.')
-        define_value = p.stdout[star_idx + len(delim_start):end_idx]
+        define_value = stdout[star_idx + len(start_token):end_idx]
+        if define_value.startswith('\r\n'):
+            define_value = define_value[2:]
+        elif define_value.startswith('\n'):
+            define_value = define_value[1:]
+        trimmed = define_value.rstrip(' \t')
+        if trimmed.endswith('\r\n'):
+            define_value = trimmed[:-2]
+        elif trimmed.endswith('\n'):
+            define_value = trimmed[:-1]
+        else:
+            define_value = trimmed
 
         # Due to https://developercommunity.visualstudio.com/t/Inconsistent-whitespace-with-standard-pr/11023343,
         # MSVC can end up producing an unexpected space after the sentinel_undef
@@ -653,12 +683,9 @@ class CLikeCompiler(Compiler):
         # with unix newlines). To avoid treating this as an actual predefined
         # macro, look for the buggy value as well.
         if define_value in {sentinel_undef, sentinel_undef + ' '}:
-            define_value = None
-        else:
-            # Merge string literals
-            define_value = self._concatenate_string_literals(define_value).strip()
-
-        return define_value, cached
+            return None
+        # Merge string literals
+        return CLikeCompiler._concatenate_string_literals(define_value).strip()
 
     def get_return_value(self, fname: str, rtype: str, prefix: str,
                          extra_args: T.Optional[T.List[str]],

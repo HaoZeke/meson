@@ -3448,3 +3448,51 @@ InstalledDir: /usr/bin'''), '14.0.0-1ubuntu1.1')
         self.assertFalse(is_lib_filename('libfoo.so.txt'))
         self.assertFalse(is_lib_filename('foo.c'))
         self.assertFalse(is_lib_filename('foo.exe'))
+
+    def test_preprocessor_define_accepts_flang_layout(self) -> None:
+        # flang -cpp -E -P indents the delimiters and puts the value on the
+        # next line. gcc, clang and ifx keep the value on its own line.
+        from mesonbuild.compilers.mixins.clike import CLikeCompiler
+        from mesonbuild.mesonlib import MesonBugException
+        sentinel = '"MESON_GET_DEFINE_UNDEFINED_SENTINEL"'
+        parse = CLikeCompiler._define_value_from_preprocessor_output
+        flang = (
+            '      "MESON_GET_DEFINE_DELIMITER_START"\n'
+            '199911\n'
+            '      "MESON_GET_DEFINE_DELIMITER_END"\n'
+        )
+        self.assertEqual(parse(flang, sentinel), '199911')
+        gcc = '"MESON_GET_DEFINE_DELIMITER_START"\n201511\n"MESON_GET_DEFINE_DELIMITER_END"\n'
+        clang = '"MESON_GET_DEFINE_DELIMITER_START"\n202011\n"MESON_GET_DEFINE_DELIMITER_END"\n'
+        ifx = '\n"MESON_GET_DEFINE_DELIMITER_START"\n202011\n"MESON_GET_DEFINE_DELIMITER_END"\n'
+        gfortran = '\n\n\n\n\n"MESON_GET_DEFINE_DELIMITER_START"\n201511\n"MESON_GET_DEFINE_DELIMITER_END"\n'
+        self.assertEqual(parse(gcc, sentinel), '201511')
+        self.assertEqual(parse(clang, sentinel), '202011')
+        self.assertEqual(parse(ifx, sentinel), '202011')
+        self.assertEqual(parse(gfortran, sentinel), '201511')
+        undefined = (
+            '"MESON_GET_DEFINE_DELIMITER_START"\n'
+            '"MESON_GET_DEFINE_UNDEFINED_SENTINEL"\n'
+            '"MESON_GET_DEFINE_DELIMITER_END"\n'
+        )
+        self.assertIsNone(parse(undefined, sentinel))
+        msvc = (
+            '"MESON_GET_DEFINE_DELIMITER_START"\n'
+            '"MESON_GET_DEFINE_UNDEFINED_SENTINEL" \n'
+            '"MESON_GET_DEFINE_DELIMITER_END"\n'
+        )
+        self.assertIsNone(parse(msvc, sentinel))
+        concatenated = (
+            '"MESON_GET_DEFINE_DELIMITER_START"\n'
+            '"hello" " " "world"\n'
+            '"MESON_GET_DEFINE_DELIMITER_END"\n'
+        )
+        self.assertEqual(parse(concatenated, sentinel), '"hello world"')
+        with self.assertRaises(MesonBugException):
+            parse('no delimiters here\n', sentinel)
+
+    def test_openmp_fortran_11_date(self) -> None:
+        from mesonbuild.dependencies.misc import OpenMPDependency
+        self.assertEqual(OpenMPDependency.VERSIONS['199911'], '1.1')
+        self.assertEqual(OpenMPDependency.VERSIONS['201511'], '4.5')
+        self.assertEqual(OpenMPDependency.VERSIONS['202011'], '5.1')
