@@ -183,7 +183,9 @@ class OpenMPDependency(SystemDependency):
                 mlog.warning('OpenMP found but omp.h missing.', fatal=False)
 
     def _fortran_openmp_module(self) -> bool:
-        if self.language != 'fortran':
+        # dependency('openmp') does not set language, so this is None
+        # even in a Fortran project. The compiler knows its language.
+        if getattr(self.clib_compiler, 'language', None) != 'fortran':
             return False
         try:
             return self.clib_compiler.compiles(
