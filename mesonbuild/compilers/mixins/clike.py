@@ -648,16 +648,38 @@ class CLikeCompiler(Compiler):
         '''Value between the define delimiters, or None when the macro is undefined.
 
         The probe writes a newline after the start token and before the end
-        token. gcc, clang and ifx keep that shape. flang's ``-cpp -E -P``
-        puts the value on the next line and indents the end token:
+        token. gcc, clang and icx keep that shape, and the slice between
+        those two delimiters is the macro, as before. flang's ``-cpp -E -P``
+        indents the end token, so that strict pair is absent:
 
             "MESON_GET_DEFINE_DELIMITER_START"
             199911
                   "MESON_GET_DEFINE_DELIMITER_END"
-
-        That is valid preprocessor output, so whitespace and newlines around
-        the tokens are not part of the macro.
         '''
+        delim_start = '"MESON_GET_DEFINE_DELIMITER_START"\n'
+        delim_end = '\n"MESON_GET_DEFINE_DELIMITER_END"'
+        star_idx = stdout.find(delim_start)
+        end_idx = stdout.rfind(delim_end)
+        # Same acceptance condition as the historical parser. Anything
+        # that matched then is sliced the same way, so gcc, clang and icx
+        # do not change. flang fails this search and uses the indented form.
+        if (star_idx == -1) or (end_idx == -1) or (star_idx == end_idx):
+            define_value = CLikeCompiler._indented_define_value(stdout)
+        else:
+            define_value = stdout[star_idx + len(delim_start):end_idx]
+
+        # Due to https://developercommunity.visualstudio.com/t/Inconsistent-whitespace-with-standard-pr/11023343,
+        # MSVC can end up producing an unexpected space after the sentinel_undef
+        # string (if building with -std:c11, and if the test source is written
+        # with unix newlines). To avoid treating this as an actual predefined
+        # macro, look for the buggy value as well.
+        if define_value in {sentinel_undef, sentinel_undef + ' '}:
+            return None
+        # Merge string literals
+        return CLikeCompiler._concatenate_string_literals(define_value).strip()
+
+    @staticmethod
+    def _indented_define_value(stdout: str) -> str:
         start_token = '"MESON_GET_DEFINE_DELIMITER_START"'
         end_token = '"MESON_GET_DEFINE_DELIMITER_END"'
         star_idx = stdout.find(start_token)
@@ -676,16 +698,7 @@ class CLikeCompiler(Compiler):
             define_value = trimmed[:-1]
         else:
             define_value = trimmed
-
-        # Due to https://developercommunity.visualstudio.com/t/Inconsistent-whitespace-with-standard-pr/11023343,
-        # MSVC can end up producing an unexpected space after the sentinel_undef
-        # string (if building with -std:c11, and if the test source is written
-        # with unix newlines). To avoid treating this as an actual predefined
-        # macro, look for the buggy value as well.
-        if define_value in {sentinel_undef, sentinel_undef + ' '}:
-            return None
-        # Merge string literals
-        return CLikeCompiler._concatenate_string_literals(define_value).strip()
+        return define_value
 
     def get_return_value(self, fname: str, rtype: str, prefix: str,
                          extra_args: T.Optional[T.List[str]],

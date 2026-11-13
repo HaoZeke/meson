@@ -3450,44 +3450,73 @@ InstalledDir: /usr/bin'''), '14.0.0-1ubuntu1.1')
         self.assertFalse(is_lib_filename('foo.exe'))
 
     def test_preprocessor_define_accepts_flang_layout(self) -> None:
-        # flang -cpp -E -P indents the delimiters and puts the value on the
-        # next line. gcc, clang and ifx keep the value on its own line.
+        # flang -cpp -E -P indents the delimiters. gcc, clang and icx keep
+        # the historical newline immediately before the end token, and that
+        # slice must stay identical to the old parser.
         from mesonbuild.compilers.mixins.clike import CLikeCompiler
         from mesonbuild.mesonlib import MesonBugException
         sentinel = '"MESON_GET_DEFINE_UNDEFINED_SENTINEL"'
         parse = CLikeCompiler._define_value_from_preprocessor_output
+
+        def legacy_parse(stdout: str):
+            delim_start = '"MESON_GET_DEFINE_DELIMITER_START"\n'
+            delim_end = '\n"MESON_GET_DEFINE_DELIMITER_END"'
+            star_idx = stdout.find(delim_start)
+            end_idx = stdout.rfind(delim_end)
+            if (star_idx == -1) or (end_idx == -1) or (star_idx == end_idx):
+                raise MesonBugException('Delimiters not found in preprocessor output.')
+            define_value = stdout[star_idx + len(delim_start):end_idx]
+            if define_value in {sentinel, sentinel + ' '}:
+                return None
+            return CLikeCompiler._concatenate_string_literals(define_value).strip()
+
+        # gcc -E -P, clang -E -P, icx -E -P and ifx -EP -cpp of the
+        # get_define probe. icx matches clang: the value is alone on
+        # its line between the delimiter quotes.
+        samples = {
+            'gcc': '"MESON_GET_DEFINE_DELIMITER_START"\n201511\n"MESON_GET_DEFINE_DELIMITER_END"\n',
+            'clang': '"MESON_GET_DEFINE_DELIMITER_START"\n202011\n"MESON_GET_DEFINE_DELIMITER_END"\n',
+            'icx': '"MESON_GET_DEFINE_DELIMITER_START"\n202011\n"MESON_GET_DEFINE_DELIMITER_END"\n',
+            'ifx': '\n"MESON_GET_DEFINE_DELIMITER_START"\n202011\n"MESON_GET_DEFINE_DELIMITER_END"\n',
+            'gfortran': '\n\n\n\n\n"MESON_GET_DEFINE_DELIMITER_START"\n201511\n"MESON_GET_DEFINE_DELIMITER_END"\n',
+            'undefined': (
+                '"MESON_GET_DEFINE_DELIMITER_START"\n'
+                '"MESON_GET_DEFINE_UNDEFINED_SENTINEL"\n'
+                '"MESON_GET_DEFINE_DELIMITER_END"\n'
+            ),
+            'msvc': (
+                '"MESON_GET_DEFINE_DELIMITER_START"\n'
+                '"MESON_GET_DEFINE_UNDEFINED_SENTINEL" \n'
+                '"MESON_GET_DEFINE_DELIMITER_END"\n'
+            ),
+            'concatenated': (
+                '"MESON_GET_DEFINE_DELIMITER_START"\n'
+                '"hello" " " "world"\n'
+                '"MESON_GET_DEFINE_DELIMITER_END"\n'
+            ),
+        }
+        expected = {
+            'gcc': '201511',
+            'clang': '202011',
+            'icx': '202011',
+            'ifx': '202011',
+            'gfortran': '201511',
+            'undefined': None,
+            'msvc': None,
+            'concatenated': '"hello world"',
+        }
+        for name, stdout in samples.items():
+            with self.subTest(compiler=name):
+                self.assertEqual(parse(stdout, sentinel), expected[name])
+                self.assertEqual(parse(stdout, sentinel), legacy_parse(stdout))
         flang = (
             '      "MESON_GET_DEFINE_DELIMITER_START"\n'
             '199911\n'
             '      "MESON_GET_DEFINE_DELIMITER_END"\n'
         )
         self.assertEqual(parse(flang, sentinel), '199911')
-        gcc = '"MESON_GET_DEFINE_DELIMITER_START"\n201511\n"MESON_GET_DEFINE_DELIMITER_END"\n'
-        clang = '"MESON_GET_DEFINE_DELIMITER_START"\n202011\n"MESON_GET_DEFINE_DELIMITER_END"\n'
-        ifx = '\n"MESON_GET_DEFINE_DELIMITER_START"\n202011\n"MESON_GET_DEFINE_DELIMITER_END"\n'
-        gfortran = '\n\n\n\n\n"MESON_GET_DEFINE_DELIMITER_START"\n201511\n"MESON_GET_DEFINE_DELIMITER_END"\n'
-        self.assertEqual(parse(gcc, sentinel), '201511')
-        self.assertEqual(parse(clang, sentinel), '202011')
-        self.assertEqual(parse(ifx, sentinel), '202011')
-        self.assertEqual(parse(gfortran, sentinel), '201511')
-        undefined = (
-            '"MESON_GET_DEFINE_DELIMITER_START"\n'
-            '"MESON_GET_DEFINE_UNDEFINED_SENTINEL"\n'
-            '"MESON_GET_DEFINE_DELIMITER_END"\n'
-        )
-        self.assertIsNone(parse(undefined, sentinel))
-        msvc = (
-            '"MESON_GET_DEFINE_DELIMITER_START"\n'
-            '"MESON_GET_DEFINE_UNDEFINED_SENTINEL" \n'
-            '"MESON_GET_DEFINE_DELIMITER_END"\n'
-        )
-        self.assertIsNone(parse(msvc, sentinel))
-        concatenated = (
-            '"MESON_GET_DEFINE_DELIMITER_START"\n'
-            '"hello" " " "world"\n'
-            '"MESON_GET_DEFINE_DELIMITER_END"\n'
-        )
-        self.assertEqual(parse(concatenated, sentinel), '"hello world"')
+        with self.assertRaises(MesonBugException):
+            legacy_parse(flang)
         with self.assertRaises(MesonBugException):
             parse('no delimiters here\n', sentinel)
 
@@ -3496,3 +3525,43 @@ InstalledDir: /usr/bin'''), '14.0.0-1ubuntu1.1')
         self.assertEqual(OpenMPDependency.VERSIONS['199911'], '1.1')
         self.assertEqual(OpenMPDependency.VERSIONS['201511'], '4.5')
         self.assertEqual(OpenMPDependency.VERSIONS['202011'], '5.1')
+
+    def test_openmp_omp_lib_module_fallback(self) -> None:
+        # Headers win. When omp.h and omp_lib.h are both missing, a
+        # Fortran compiler that can `use omp_lib` still provides OpenMP.
+        # A C compiler does not get that fallback.
+        from mesonbuild.dependencies.misc import OpenMPDependency
+
+        def make_dep(language, header_found, module_ok):
+            compiler = mock.Mock()
+            compiler.language = language
+            compiler.get_id.return_value = 'llvm-flang' if language == 'fortran' else 'gcc'
+            compiler.openmp_flags.return_value = ['-fopenmp']
+            compiler.openmp_link_flags.return_value = ['-fopenmp']
+            compiler.get_define.return_value = ('199911', False)
+            compiler.has_header.return_value = (header_found, False)
+            compiler.compiles.return_value = (module_ok, False)
+            env = mock.Mock()
+            env.coredata.optstore.get_value_for.return_value = False
+            kwargs = {'native': MachineChoice.HOST}
+            with mock.patch('mesonbuild.dependencies.base.detect_compiler', return_value=compiler):
+                dep = OpenMPDependency('openmp', env, kwargs)
+            return dep, compiler
+
+        found, compiler = make_dep('fortran', False, True)
+        self.assertTrue(found.is_found)
+        self.assertEqual(found.version, '1.1')
+        compiler.compiles.assert_called_once()
+        self.assertEqual(compiler.compiles.call_args.args[0], 'use omp_lib\nend\n')
+
+        found, compiler = make_dep('fortran', True, False)
+        self.assertTrue(found.is_found)
+        compiler.compiles.assert_not_called()
+
+        missing, compiler = make_dep('c', False, True)
+        self.assertFalse(missing.is_found)
+        compiler.compiles.assert_not_called()
+
+        missing, compiler = make_dep('fortran', False, False)
+        self.assertFalse(missing.is_found)
+        compiler.compiles.assert_called_once()
