@@ -83,7 +83,16 @@ class CoarrayDependency(SystemDependency):
             # NAG doesn't require any special arguments for Coarray
             self.is_found = True
         elif cid == 'lfortran':
-            # `--coarray` references PRIF symbols this build does not link.
-            self.is_found = False
-            mlog.warning('Coarray support not available: LFortran does not link a coarray runtime.',
-                         fatal=False)
+            # Probe a this_image/num_images/sync all program. --coarray is
+            # kept when that runtime links; otherwise a built-in single image
+            # is accepted. Neither means the dependency is not found.
+            flags = self.get_compiler()._lfortran_coarray_flags()
+            if flags is None:
+                self.is_found = False
+                mlog.warning('Coarray support not available: LFortran does not link a coarray runtime.',
+                             fatal=False)
+            else:
+                self.is_found = True
+                self.compile_args = flags
+                self.link_args = flags
+                self.version = 'coarray' if flags else 'single image'

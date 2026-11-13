@@ -508,6 +508,8 @@ InstalledDir: /usr/bin'''), '14.0.0-1ubuntu1.1')
         self.assertEqual(compiler.get_werror_args(), [])
         self.assertEqual(compiler.get_optimization_args('2'), ['-O2'])
         self.assertEqual(LFortranFortranCompiler.id, 'lfortran')
+        compiler.get_define = lambda *a, **k: (None, False)
+        compiler.links = lambda *a, **k: (False, False)
         with self.assertRaises(EnvironmentException) as exc:
             compiler.openmp_flags()
         self.assertIn('does not provide a usable OpenMP dependency', str(exc.exception))
@@ -566,12 +568,23 @@ InstalledDir: /usr/bin'''), '14.0.0-1ubuntu1.1')
         self.assertIn(os.path.join('priv', 'a1@a3.smod'), gcc_outs)
         self.assertNotIn(os.path.join('priv', 'a2@a3.smod'), gcc_outs)
 
-    def test_lfortran_openmp_and_coarray_not_found(self):
+    def _lfortran_dep_compiler(self, get_define, links):
         from mesonbuild.compilers.fortran import LFortranFortranCompiler
+        compiler = object.__new__(LFortranFortranCompiler)
+        compiler.get_define = get_define
+        compiler.links = links
+        return compiler
+
+    def test_lfortran_openmp_and_coarray_not_found(self):
         from mesonbuild.dependencies.coarrays import CoarrayDependency
         from mesonbuild.dependencies.misc import OpenMPDependency
 
-        compiler = object.__new__(LFortranFortranCompiler)
+        # _OPENMP is not defined, and no coarray program links.
+        compiler = self._lfortran_dep_compiler(
+            lambda *a, **k: (None, False),
+            lambda *a, **k: (False, False),
+        )
+        compiler._probe_link = lambda *_args, **_kwargs: False
         env = get_fake_env()
         env.coredata.compilers[MachineChoice.HOST]['fortran'] = compiler
         kwargs = {
@@ -592,6 +605,53 @@ InstalledDir: /usr/bin'''), '14.0.0-1ubuntu1.1')
         self.assertEqual(openmp.link_args, [])
         self.assertEqual(coarray.compile_args, [])
         self.assertEqual(coarray.link_args, [])
+
+        # _OPENMP expands, but omp_get_num_threads does not link.
+        link_fail = self._lfortran_dep_compiler(
+            lambda *a, **k: ('201511', False),
+            lambda *a, **k: (False, False),
+        )
+        link_fail._probe_link = lambda *_args, **_kwargs: False
+        env.coredata.compilers[MachineChoice.HOST]['fortran'] = link_fail
+        with contextlib.redirect_stdout(captured), contextlib.redirect_stderr(captured):
+            openmp_unlinked = OpenMPDependency('openmp', env, kwargs.copy())
+        self.assertFalse(openmp_unlinked.is_found)
+        self.assertEqual(openmp_unlinked.compile_args, [])
+
+    def test_lfortran_openmp_and_coarray_found(self):
+        from mesonbuild.dependencies.coarrays import CoarrayDependency
+        from mesonbuild.dependencies.misc import OpenMPDependency
+
+        def get_define(*_args, **_kwargs):
+            return ('201511', False)
+
+        def probe_link(_code, extra_args):
+            # omp_get_num_threads links with --openmp. --coarray does not
+            # link; the built-in single image does.
+            return extra_args in (['--openmp'], [])
+
+        compiler = self._lfortran_dep_compiler(get_define, lambda *a, **k: (False, False))
+        compiler._probe_link = probe_link
+        env = get_fake_env()
+        env.coredata.compilers[MachineChoice.HOST]['fortran'] = compiler
+        kwargs = {
+            'native': MachineChoice.HOST,
+            'language': 'fortran',
+            'required': False,
+        }
+        captured = io.StringIO()
+        with contextlib.redirect_stdout(captured), contextlib.redirect_stderr(captured):
+            openmp = OpenMPDependency('openmp', env, kwargs.copy())
+            coarray = CoarrayDependency('coarray', env, kwargs.copy())
+        self.assertTrue(openmp.is_found)
+        self.assertEqual(openmp.version, '4.5')
+        self.assertEqual(openmp.compile_args, ['--openmp'])
+        self.assertEqual(openmp.link_args, ['--openmp'])
+        self.assertTrue(coarray.is_found)
+        self.assertEqual(coarray.compile_args, [])
+        self.assertEqual(coarray.link_args, [])
+        self.assertEqual(coarray.version, 'single image')
+        self.assertNotIn('not available', captured.getvalue())
 
     def test_intel_fortran_standard_args(self):
         from mesonbuild.compilers.fortran import (

@@ -21,8 +21,14 @@ coarray = dependency('coarray')
 # for example, conflicting library/compiler versions on PATH
 # this has to invoke a run of "sync all" to verify the MPI stack is functioning,
 # particularly for dynamic linking
-if fc.run('sync all; end', dependencies: coarray, name: 'Coarray link & run').returncode() != 0
-  error('MESON_SKIP_TEST: coarray stack (including MPI) did not link correctly so that a simple test could run.')
+coarray_run = fc.run('sync all; end', dependencies: coarray, name: 'Coarray link & run')
+if coarray_run.returncode() != 0
+  errtext = ' '.join(coarray_run.stderr().split())
+  reason = 'coarray stack (including MPI) did not link correctly so that a simple test could run.'
+  if errtext != ''
+    reason += ' ' + errtext
+  endif
+  error('MESON_SKIP_TEST: ' + reason)
 endif
 
 exe = executable('hello', 'main.f90',

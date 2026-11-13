@@ -142,6 +142,20 @@ class OpenMPDependency(SystemDependency):
             self.is_found = True
             self.compile_args = self.link_args = self.clib_compiler.openmp_flags()
             return
+        if self.clib_compiler.get_id() == 'lfortran':
+            # Probe --openmp --cpp for _OPENMP and a link of omp_get_num_threads.
+            # omp.h is not how LFortran exposes OpenMP.
+            try:
+                flags = self.clib_compiler.openmp_flags()
+            except mesonlib.MesonException as e:
+                mlog.warning('OpenMP support not available because:', str(e), fatal=False)
+                return
+            self.compile_args = list(flags)
+            self.link_args = list(flags)
+            date = getattr(self.clib_compiler, '_lfortran_openmp_date', None) or None
+            self.version = self.VERSIONS.get(date, '')
+            self.is_found = True
+            return
 
         # Set these now so they're available for the following compiler checks
         try:
