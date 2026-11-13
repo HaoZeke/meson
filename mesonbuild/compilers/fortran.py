@@ -643,7 +643,14 @@ class LlvmFlangFortranCompiler(ClangCompiler, FortranCompiler):
     def _flang_compiler_prefix(self) -> T.Optional[str]:
         if not self.exelist:
             return None
-        compiler = os.path.realpath(self.exelist[0])
+        import shutil
+        exe = self.exelist[0]
+        # exelist may be a bare name on PATH. flang-new-20 is a symlink
+        # into lib/llvm-20/bin, and the runtime is that prefix's lib.
+        found = shutil.which(exe) or exe
+        if not os.path.isfile(found):
+            return None
+        compiler = os.path.realpath(found)
         return os.path.dirname(os.path.dirname(compiler))
 
     def _flang_prefix_libdir(self) -> T.Optional[str]:
