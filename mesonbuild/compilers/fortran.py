@@ -445,7 +445,10 @@ class IntelFortranCompiler(IntelGnuLikeCompiler, FortranCompiler):
             libdir = os.path.join(os.path.dirname(os.path.dirname(compiler)), 'lib')
             if os.path.isdir(libdir):
                 flags.append('-L' + libdir)
-        return flags + ['-lifcore', '-limf']
+        # libirc provides _intel_fast_memcpy, which ifx emits for some
+        # copies. libimf's __addq (quad add) is not always pulled in by
+        # -limf alone when the C linker uses --as-needed.
+        return flags + ['-lifcore', '-limf', '-lirc', '-lintlc']
 
     def get_dependency_gen_args(self, outtarget: str, outfile: str) -> T.List[str]:
         return ['-gen-dep=' + outtarget, '-gen-depformat=make']

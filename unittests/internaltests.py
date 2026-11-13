@@ -519,6 +519,8 @@ InstalledDir: /usr/bin'''), '14.0.0-1ubuntu1.1')
                 self.assertIn('-L' + os.path.realpath(libdir), flags)
                 self.assertIn('-lifcore', flags)
                 self.assertIn('-limf', flags)
+                self.assertIn('-lirc', flags)
+                self.assertIn('-lintlc', flags)
 
     def test_compiler_args_class_visualstudio(self):
         env = get_fake_env()
