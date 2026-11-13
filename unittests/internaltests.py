@@ -501,6 +501,14 @@ InstalledDir: /usr/bin'''), '14.0.0-1ubuntu1.1')
                     with mock.patch.object(compiler, 'get_compileropt_value', return_value=standard):
                         self.assertEqual(compiler.get_option_std_args(None), expected)
 
+    def test_llvm_flang_check_args_skip_clang_werror(self):
+        from mesonbuild.compilers.compilers import CompileCheckMode
+        from mesonbuild.compilers.fortran import LlvmFlangFortranCompiler
+        compiler = object.__new__(LlvmFlangFortranCompiler)
+        for mode in (CompileCheckMode.COMPILE, CompileCheckMode.LINK):
+            args = compiler.get_compiler_check_args(mode)
+            self.assertFalse(any(arg.startswith('-Werror=') for arg in args))
+
     def test_compiler_args_class_visualstudio(self):
         env = get_fake_env()
         linker = linkers.MSVCDynamicLinker(env, MachineChoice.HOST, [])

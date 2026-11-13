@@ -616,6 +616,12 @@ class LlvmFlangFortranCompiler(ClangCompiler, FortranCompiler):
                           '3': default_warn_args,
                           'everything': default_warn_args}
 
+    def get_compiler_check_args(self, mode: CompileCheckMode) -> T.List[str]:
+        # Inherited from ClangCompiler, which adds -Werror=implicit-function-declaration
+        # and -Werror=unknown-warning-option. flang 20 rejects every -Werror= form
+        # ("Only -Werror is supported currently") and then fails the sanity check.
+        return FortranCompiler.get_compiler_check_args(self, mode)
+
     def get_colorout_args(self, colortype: str) -> T.List[str]:
         # not yet supported, see https://github.com/llvm/llvm-project/issues/89888
         return []
