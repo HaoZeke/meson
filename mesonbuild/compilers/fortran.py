@@ -434,33 +434,32 @@ class IntelFortranCompiler(IntelGnuLikeCompiler, FortranCompiler):
     def get_werror_args(self) -> T.List[str]:
         return ['-warn', 'errors']
 
+    def _prefix_libdir_args(self) -> T.List[str]:
+        '''``-L<prefix>/lib`` for ifx and ifort.
+
+        Those drivers do not implement ``-print-search-dirs``. The
+        runtime libraries live next to ``<prefix>/bin/<compiler>``,
+        which a C linker does not search.
+        '''
+        if not self.exelist:
+            return []
+        compiler = os.path.realpath(self.exelist[0])
+        libdir = os.path.join(os.path.dirname(os.path.dirname(compiler)), 'lib')
+        if os.path.isdir(libdir):
+            return ['-L' + libdir]
+        return []
+
     def language_stdlib_only_link_flags(self) -> T.List[str]:
-        # ifx/ifort do not implement -print-search-dirs. Their runtimes
-        # live in <prefix>/lib next to <prefix>/bin/<compiler>. A C
-        # linker driving a Python extension does not search that
-        # directory, so -lifcore/-limf are otherwise not found.
-        flags: T.List[str] = []
-        if self.exelist:
-            compiler = os.path.realpath(self.exelist[0])
-            libdir = os.path.join(os.path.dirname(os.path.dirname(compiler)), 'lib')
-            if os.path.isdir(libdir):
-                flags.append('-L' + libdir)
         # libirc provides _intel_fast_memcpy, which ifx emits for some
         # copies. libimf's __addq (quad add) is not always pulled in by
         # -limf alone when the C linker uses --as-needed.
-        return flags + ['-lifcore', '-limf', '-lirc', '-lintlc']
+        return self._prefix_libdir_args() + ['-lifcore', '-limf', '-lirc', '-lintlc']
 
     def openmp_link_flags(self) -> T.List[str]:
         # ifx and ifort call the Intel OpenMP runtime. gcc's OpenMP
         # flag links libgomp, and an as-needed link drops it because
         # those objects reference __kmpc_* instead.
-        flags: T.List[str] = []
-        if self.exelist:
-            compiler = os.path.realpath(self.exelist[0])
-            libdir = os.path.join(os.path.dirname(os.path.dirname(compiler)), 'lib')
-            if os.path.isdir(libdir):
-                flags.append('-L' + libdir)
-        return flags + ['-liomp5']
+        return self._prefix_libdir_args() + ['-liomp5']
 
     def get_dependency_gen_args(self, outtarget: str, outfile: str) -> T.List[str]:
         return ['-gen-dep=' + outtarget, '-gen-depformat=make']
