@@ -438,6 +438,18 @@ class IntelFortranCompiler(IntelGnuLikeCompiler, FortranCompiler):
         # TODO: needs default search path added
         return ['-lifcore', '-limf']
 
+    def openmp_link_flags(self) -> T.List[str]:
+        # ifx and ifort call the Intel OpenMP runtime. gcc's OpenMP
+        # flag links libgomp, and an as-needed link drops it because
+        # those objects reference __kmpc_* instead.
+        flags: T.List[str] = []
+        if self.exelist:
+            compiler = os.path.realpath(self.exelist[0])
+            libdir = os.path.join(os.path.dirname(os.path.dirname(compiler)), 'lib')
+            if os.path.isdir(libdir):
+                flags.append('-L' + libdir)
+        return flags + ['-liomp5']
+
     def get_dependency_gen_args(self, outtarget: str, outfile: str) -> T.List[str]:
         return ['-gen-dep=' + outtarget, '-gen-depformat=make']
 

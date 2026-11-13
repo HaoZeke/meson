@@ -150,6 +150,15 @@ class OpenMPDependency(SystemDependency):
         except mesonlib.MesonException as e:
             mlog.warning('OpenMP support not available because:', str(e), fatal=False)
             return
+        # With no language, OpenMP follows the C compiler. ifx objects
+        # still need libiomp5 when gcc performs the link.
+        for comp in environment.coredata.compilers[self.for_machine].values():
+            if (getattr(comp, 'language', None) == 'fortran'
+                    and comp.get_id() in {'intel', 'intel-llvm'}
+                    and comp is not self.clib_compiler):
+                for arg in comp.openmp_link_flags():
+                    if arg not in self.link_args:
+                        self.link_args.append(arg)
 
         try:
             openmp_date = self.clib_compiler.get_define(
