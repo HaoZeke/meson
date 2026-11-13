@@ -499,8 +499,14 @@ InstalledDir: /usr/bin'''), '14.0.0-1ubuntu1.1')
         self.assertEqual(compiler.get_preprocess_only_args(), ['--cpp', '-E'])
         self.assertEqual(compiler.gnu_symbol_visibility_args('default'), [])
         self.assertEqual(compiler.get_no_optimization_args(), ['-O0'])
+        # Implicit typing and sequence association are on, so a
+        # fixed-form source that omits declarations or passes an
+        # array element to an explicit-shape dummy compiles. The
+        # trailing underscore stays off.
         self.assertEqual(compiler.get_always_args(), [
             '--implicit-interface',
+            '--implicit-typing',
+            '--legacy-array-sections',
             '--fixed-form-infer',
             '--separate-compilation',
             '--print-leading-space',

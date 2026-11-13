@@ -760,10 +760,14 @@ class LFortranFortranCompiler(FortranCompiler):
     def get_always_args(self) -> T.List[str]:
         # .f is free form unless asked, a module procedure is omitted
         # from the object file, and an external call wants an explicit
-        # interface. Implicit typing and the trailing underscore stay
-        # off: they change the language and the C ABI.
+        # interface. Implicit typing is the standard default, and an
+        # array element may sequence-associate with an explicit-shape
+        # dummy; LFortran leaves both off unless asked. The trailing
+        # underscore stays off: it changes the C ABI.
         return [
             '--implicit-interface',
+            '--implicit-typing',
+            '--legacy-array-sections',
             '--fixed-form-infer',
             '--separate-compilation',
             '--print-leading-space',
