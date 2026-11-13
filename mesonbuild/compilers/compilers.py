@@ -796,7 +796,9 @@ class Compiler(HoldableObject, metaclass=SimpleABC):
         with self._build_wrapper(code, extra_args, dependencies, mode=CompileCheckMode.LINK, want_output=True) as p:
             if p.returncode != 0:
                 mlog.debug(f'Could not compile test file {p.input_name}: {p.returncode}\n')
-                return RunResult(False)
+                # Keep the compiler output so a build file can quote the
+                # real error when a link probe fails.
+                return RunResult(False, p.returncode, p.stdout, p.stderr)
             if need_exe_wrapper:
                 cmdlist = self.environment.exe_wrapper.get_command() + [p.output_name]
             else:

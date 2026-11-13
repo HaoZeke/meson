@@ -478,6 +478,173 @@ InstalledDir: /usr/bin'''), '14.0.0-1ubuntu1.1')
         self.assertEqual(cc.get_import_std_args(base + ['/Isome', '/Od', '/D_HAS_EXCEPTIONS']),
                          ['/D_HAS_EXCEPTIONS=1', '/EHsc', '/MD', '/permissive-', '/std:c++latest', '/utf-8'])
 
+    def test_lfortran_version_string(self):
+        # LFortran 0.69.0 --version. search_version must take the compiler
+        # version, not the LLVM version further down the banner.
+        from mesonbuild.compilers.fortran import LFortranFortranCompiler
+        from mesonbuild.linkers.linkers import LFortranDynamicLinker
+        from mesonbuild.utils.universal import search_version
+        out = (
+            'LFortran version: 0.69.0\n'
+            'Status: alpha (expected to fail on third-party codes)\n'
+            'Platform: Linux\n'
+            'LLVM: 21.1.7\n'
+            'Default target: x86_64-conda-linux-gnu\n'
+        )
+        self.assertTrue(out.startswith('LFortran') or 'LFortran version' in out)
+        self.assertEqual(search_version(out), '0.69.0')
+        self.assertNotIn('flang', out)
+        compiler = object.__new__(LFortranFortranCompiler)
+        self.assertEqual(compiler.get_module_outdir_args('dir'), ['-Jdir'])
+        self.assertEqual(compiler.get_preprocess_only_args(), ['--cpp', '-E'])
+        self.assertEqual(compiler.gnu_symbol_visibility_args('default'), [])
+        self.assertEqual(compiler.get_no_optimization_args(), ['-O0'])
+        self.assertEqual(compiler.get_always_args(), [
+            '--implicit-interface',
+            '--fixed-form-infer',
+            '--separate-compilation',
+            '--print-leading-space',
+        ])
+        self.assertEqual(compiler.get_werror_args(), [])
+        self.assertEqual(compiler.get_optimization_args('2'), ['-O2'])
+        self.assertEqual(LFortranFortranCompiler.id, 'lfortran')
+        compiler.get_define = lambda *a, **k: (None, False)
+        with self.assertRaises(EnvironmentException) as exc:
+            compiler.openmp_flags()
+        self.assertIn('does not provide a usable OpenMP dependency', str(exc.exception))
+        self.assertEqual(compiler.module_name_to_filename('parent'), 'parent.mod')
+        self.assertEqual(compiler.module_name_to_filename('parent_child'), 'parent@child.smod')
+        self.assertEqual(compiler.submodule_filename(['parent'], 'child'), 'parent@child.smod')
+        # Nested submodule (a1:a2) a3 is the immediate parent, not the ancestor.
+        self.assertEqual(compiler.submodule_filename(['a1', 'a2'], 'a3'), 'a2@a3.smod')
+        self.assertEqual(LFortranDynamicLinker.get_std_shared_lib_args(None), ['--shared'])
+        self.assertEqual(LFortranDynamicLinker.get_pie_args(None), [])
+
+    def test_lfortran_module_dependency_scanner(self):
+        # LFortran writes submodule (a1:a2) a3 to a2@a3.smod. GFortran writes a1@a3.smod.
+        from mesonbuild.backend.ninjabackend import TargetDependencyScannerInfo
+        from mesonbuild.compilers.fortran import GnuFortranCompiler
+        from mesonbuild.scripts.depscan import DependencyScanner
+
+        gfortran = object.__new__(GnuFortranCompiler)
+        self.assertEqual(gfortran.submodule_filename(['a1', 'a2'], 'a3'), 'a1@a3.smod')
+
+        a1 = 'module a1\ninterface\nmodule subroutine hello()\nend subroutine\nend interface\nend module\n'
+        a2 = 'submodule (a1) a2\ncontains\nmodule procedure hello\nend procedure\nend submodule\n'
+        a3 = 'submodule (a1:a2) a3\ncontains\nend submodule\n'
+
+        def scanned(compiler_id: str) -> list:
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                sources = []
+                for name, text in (('a1.f90', a1), ('a2.f90', a2), ('a3.f90', a3)):
+                    path = root / name
+                    path.write_text(text, encoding='utf-8')
+                    sources.append((str(path), 'fortran'))
+                info = TargetDependencyScannerInfo(
+                    'priv',
+                    {src: src + '.o' for src, _lang in sources},
+                    sources,
+                    fortran_compiler_id=compiler_id,
+                )
+                pickle_path = root / 'scan.dat'
+                with open(pickle_path, 'wb') as handle:
+                    pickle.dump(info, handle)
+                outfile = root / 'depscan.json'
+                self.assertEqual(DependencyScanner(str(pickle_path), str(outfile)).scan(), 0)
+                description = json.loads(outfile.read_text(encoding='utf-8'))
+            found = []
+            for rule in description['rules']:
+                found.extend(rule.get('outputs', []))
+            return found
+
+        lfortran_outs = scanned('lfortran')
+        gcc_outs = scanned('gcc')
+        self.assertIn(os.path.join('priv', 'a1.mod'), lfortran_outs)
+        self.assertIn(os.path.join('priv', 'a1@a2.smod'), lfortran_outs)
+        self.assertIn(os.path.join('priv', 'a2@a3.smod'), lfortran_outs)
+        self.assertNotIn(os.path.join('priv', 'a1@a3.smod'), lfortran_outs)
+        self.assertIn(os.path.join('priv', 'a1@a3.smod'), gcc_outs)
+        self.assertNotIn(os.path.join('priv', 'a2@a3.smod'), gcc_outs)
+
+    def _lfortran_dep_compiler(self, get_define):
+        from mesonbuild.compilers.fortran import LFortranFortranCompiler
+        compiler = object.__new__(LFortranFortranCompiler)
+        compiler.get_define = get_define
+        return compiler
+
+    def test_lfortran_openmp_and_coarray_not_found(self):
+        from mesonbuild.dependencies.coarrays import CoarrayDependency
+        from mesonbuild.dependencies.misc import OpenMPDependency
+
+        # _OPENMP is not defined, and no coarray program links.
+        compiler = self._lfortran_dep_compiler(lambda *a, **k: (None, False))
+        compiler._probe_link = lambda *_args, **_kwargs: False
+        env = get_fake_env()
+        env.coredata.compilers[MachineChoice.HOST]['fortran'] = compiler
+        kwargs = {
+            'native': MachineChoice.HOST,
+            'language': 'fortran',
+            'required': False,
+        }
+        captured = io.StringIO()
+        with contextlib.redirect_stdout(captured), contextlib.redirect_stderr(captured):
+            openmp = OpenMPDependency('openmp', env, kwargs.copy())
+            coarray = CoarrayDependency('coarray', env, kwargs.copy())
+        text = captured.getvalue()
+        self.assertFalse(openmp.is_found)
+        self.assertFalse(coarray.is_found)
+        self.assertIn('does not provide a usable OpenMP dependency', text)
+        self.assertIn('does not link a coarray runtime', text)
+        self.assertEqual(openmp.compile_args, [])
+        self.assertEqual(openmp.link_args, [])
+        self.assertEqual(coarray.compile_args, [])
+        self.assertEqual(coarray.link_args, [])
+
+        # _OPENMP expands, but omp_get_num_threads does not link.
+        link_fail = self._lfortran_dep_compiler(lambda *a, **k: ('201511', False))
+        link_fail._probe_link = lambda *_args, **_kwargs: False
+        env.coredata.compilers[MachineChoice.HOST]['fortran'] = link_fail
+        with contextlib.redirect_stdout(captured), contextlib.redirect_stderr(captured):
+            openmp_unlinked = OpenMPDependency('openmp', env, kwargs.copy())
+        self.assertFalse(openmp_unlinked.is_found)
+        self.assertEqual(openmp_unlinked.compile_args, [])
+
+    def test_lfortran_openmp_and_coarray_found(self):
+        from mesonbuild.dependencies.coarrays import CoarrayDependency
+        from mesonbuild.dependencies.misc import OpenMPDependency
+
+        def get_define(*_args, **_kwargs):
+            return ('201511', False)
+
+        def probe_link(_code, extra_args):
+            # omp_get_num_threads links with --openmp. --coarray does not
+            # link; the built-in single image does.
+            return extra_args in (['--openmp'], [])
+
+        compiler = self._lfortran_dep_compiler(get_define)
+        compiler._probe_link = probe_link
+        env = get_fake_env()
+        env.coredata.compilers[MachineChoice.HOST]['fortran'] = compiler
+        kwargs = {
+            'native': MachineChoice.HOST,
+            'language': 'fortran',
+            'required': False,
+        }
+        captured = io.StringIO()
+        with contextlib.redirect_stdout(captured), contextlib.redirect_stderr(captured):
+            openmp = OpenMPDependency('openmp', env, kwargs.copy())
+            coarray = CoarrayDependency('coarray', env, kwargs.copy())
+        self.assertTrue(openmp.is_found)
+        self.assertEqual(openmp.version, '4.5')
+        self.assertEqual(openmp.compile_args, ['--openmp'])
+        self.assertEqual(openmp.link_args, ['--openmp'])
+        self.assertTrue(coarray.is_found)
+        self.assertEqual(coarray.compile_args, [])
+        self.assertEqual(coarray.link_args, [])
+        self.assertEqual(coarray.version, 'single image')
+        self.assertNotIn('not available', captured.getvalue())
+
     def test_intel_fortran_standard_args(self):
         from mesonbuild.compilers.fortran import (
             IntelFortranCompiler, IntelLLVMFortranCompiler,

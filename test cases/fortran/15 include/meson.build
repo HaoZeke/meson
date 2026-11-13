@@ -12,7 +12,11 @@ test('Fortran include file syntax', syntax_exe)
 # older CI runs into problems with too-old Ninja and CMake and Fortran
 ninja_version = run_command('ninja', '--version', check: true).stdout().strip()
 cmake_version = run_command('cmake', '--version', check: true).stdout().split()[2]
-if ninja_version.version_compare('>=1.10.0') and cmake_version.version_compare('>=3.17.0')
+if meson.get_compiler('fortran').get_id() == 'lfortran'
+  # CMake 3.28: The Fortran compiler identification is unknown.
+  # Missing variable is: CMAKE_Fortran_PREPROCESS_SOURCE
+  message('SKIP: The Fortran compiler identification is unknown. CMAKE_Fortran_PREPROCESS_SOURCE is not set')
+elif ninja_version.version_compare('>=1.10.0') and cmake_version.version_compare('>=3.17.0')
   cm.subproject('cmake_inc')
 else
   message('SKIP: CMake Fortran subproject with include. Ninja >= 1.10 and CMake >= 3.17 needed. You have Ninja ' + ninja_version + ' and CMake ' + cmake_version)
