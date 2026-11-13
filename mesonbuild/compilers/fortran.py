@@ -616,6 +616,26 @@ class LlvmFlangFortranCompiler(ClangCompiler, FortranCompiler):
                           '3': default_warn_args,
                           'everything': default_warn_args}
 
+    def get_options(self) -> 'MutableKeyedOptionDictType':
+        # Call FortranCompiler directly. The ClangCompiler base would
+        # contribute C/C++ standard options.
+        opts = FortranCompiler.get_options(self)
+        # flang 20 rejects every -std= value except f2018, but projects
+        # still request legacy/f95/.... Those names have to be legal
+        # choices or Meson aborts at configure time (pdfo sets
+        # fortran_std=legacy).
+        self._update_language_stds(
+            opts, ['legacy', 'f95', 'f2003', 'f2008', 'f2018'])
+        return opts
+
+    def get_option_std_args(self, target: BuildTarget, subproject: T.Optional[str] = None) -> T.List[str]:
+        std = self.get_compileropt_value('std', target, subproject)
+        # "Only -std=f2018 is allowed currently." Anything else is a
+        # hard error from the driver, so leave the flag off.
+        if std == 'f2018':
+            return ['-std=f2018']
+        return []
+
     def get_colorout_args(self, colortype: str) -> T.List[str]:
         # not yet supported, see https://github.com/llvm/llvm-project/issues/89888
         return []

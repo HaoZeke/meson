@@ -501,6 +501,19 @@ InstalledDir: /usr/bin'''), '14.0.0-1ubuntu1.1')
                     with mock.patch.object(compiler, 'get_compileropt_value', return_value=standard):
                         self.assertEqual(compiler.get_option_std_args(None), expected)
 
+    def test_llvm_flang_legacy_std_is_accepted(self):
+        from mesonbuild.compilers.fortran import LlvmFlangFortranCompiler
+        compiler = object.__new__(LlvmFlangFortranCompiler)
+        compiler.language = 'fortran'
+        compiler.for_machine = MachineChoice.HOST
+        choices = compiler.get_options()[compiler.form_compileropt_key('std')].choices
+        self.assertIn('legacy', choices)
+        self.assertIn('f2018', choices)
+        with mock.patch.object(compiler, 'get_compileropt_value', return_value='legacy'):
+            self.assertEqual(compiler.get_option_std_args(None), [])
+        with mock.patch.object(compiler, 'get_compileropt_value', return_value='f2018'):
+            self.assertEqual(compiler.get_option_std_args(None), ['-std=f2018'])
+
     def test_compiler_args_class_visualstudio(self):
         env = get_fake_env()
         linker = linkers.MSVCDynamicLinker(env, MachineChoice.HOST, [])
