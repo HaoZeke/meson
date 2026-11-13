@@ -509,27 +509,104 @@ InstalledDir: /usr/bin'''), '14.0.0-1ubuntu1.1')
             args = compiler.get_compiler_check_args(mode)
             self.assertFalse(any(arg.startswith('-Werror=') for arg in args))
 
-    def test_llvm_flang_stdlib_links_runtime_from_prefix(self):
-        import tempfile
+    def _llvm_flang_runtime_flags(self, version, system, cpu_family, archives,
+                                  compiler_dirs=None):
         from mesonbuild.compilers.fortran import LlvmFlangFortranCompiler
         with tempfile.TemporaryDirectory() as root:
             bindir = os.path.join(root, 'bin')
-            libdir = os.path.join(root, 'lib')
             os.makedirs(bindir)
-            os.makedirs(libdir)
             compiler_path = os.path.join(bindir, 'flang')
             with open(compiler_path, 'w', encoding='utf-8') as handle:
                 handle.write('')
+            for relative in archives:
+                path = os.path.join(root, relative)
+                os.makedirs(os.path.dirname(path), exist_ok=True)
+                open(path, 'w', encoding='utf-8').close()
+            info = mock.Mock()
+            info.is_windows.return_value = system == 'windows'
+            info.cpu_family = cpu_family
             compiler = object.__new__(LlvmFlangFortranCompiler)
             compiler.exelist = [compiler_path]
-            compiler.version = '20.1.2'
-            with mock.patch.object(compiler, 'get_compiler_dirs', return_value=[]):
-                flags = compiler.language_stdlib_only_link_flags()
-            self.assertIn('-L' + os.path.realpath(libdir), flags)
-            self.assertIn('-lFortranRuntime', flags)
-            self.assertIn('-lFortranDecimal', flags)
-            self.assertIn('-lm', flags)
-            self.assertLess(flags.index('-lFortranDecimal'), flags.index('-lm'))
+            compiler.version = version
+            compiler.for_machine = MachineChoice.HOST
+            compiler.environment = mock.Mock()
+            compiler.environment.machines = {MachineChoice.HOST: info}
+            if compiler_dirs is None:
+                reported = []
+            else:
+                reported = [os.path.join(root, directory) for directory in compiler_dirs]
+                for directory in reported:
+                    os.makedirs(directory, exist_ok=True)
+            with mock.patch.object(compiler, 'get_compiler_dirs', return_value=reported):
+                return compiler.language_stdlib_only_link_flags(), root
+
+    def test_llvm_flang_runtime_library_names(self):
+        # LLVM 17-20: FortranRuntime + FortranDecimal. LLVM 21 renamed
+        # the runtime to flang_rt.runtime. Windows ARM64 flang >= 19
+        # must not name FortranRuntime.lib (meson PR 14685). -lm is
+        # not a Windows library.
+        classic = [
+            'lib/libFortranRuntime.a',
+            'lib/libFortranDecimal.a',
+        ]
+        windows_classic = [
+            'lib/FortranRuntime.lib',
+            'lib/FortranDecimal.lib',
+        ]
+        renamed = [
+            'lib/libFortranDecimal.a',
+            'lib/clang/21/lib/x86_64-pc-linux-gnu/libflang_rt.runtime.a',
+        ]
+        windows_renamed = [
+            'lib/clang/21/lib/x86_64-pc-windows-msvc/flang_rt.runtime.lib',
+        ]
+        cases = [
+            ('17.0.6', 'linux', 'x86_64', classic, ['-lFortranRuntime', '-lFortranDecimal'], True),
+            ('18.1.8', 'linux', 'x86_64', classic, ['-lFortranRuntime', '-lFortranDecimal'], True),
+            ('19.1.7', 'linux', 'x86_64', classic, ['-lFortranRuntime', '-lFortranDecimal'], True),
+            ('20.1.2', 'linux', 'x86_64', classic, ['-lFortranRuntime', '-lFortranDecimal'], True),
+            ('21.1.0', 'linux', 'x86_64', renamed, ['-lflang_rt.runtime'], True),
+            ('17.0.1', 'windows', 'x86_64', windows_classic, ['-lFortranRuntime', '-lFortranDecimal'], False),
+            ('18.1.0', 'windows', 'aarch64', windows_classic, ['-lFortranRuntime', '-lFortranDecimal'], False),
+            ('19.1.5', 'windows', 'aarch64', windows_classic, [], False),
+            ('20.1.0', 'windows', 'aarch64', windows_classic, [], False),
+            ('20.1.0', 'windows', 'x86_64', windows_classic, ['-lFortranRuntime', '-lFortranDecimal'], False),
+            ('21.1.0', 'windows', 'x86_64', windows_renamed, ['-lflang_rt.runtime'], False),
+            ('21.1.2', 'windows', 'arm64', windows_renamed, [], False),
+            ('17.0.6', 'linux', 'x86_64', [], ['-lFortranRuntime', '-lFortranDecimal'], True),
+            ('22.1.0', 'linux', 'x86_64', [], ['-lflang_rt.runtime'], True),
+        ]
+        for version, system, cpu, archives, expected_libs, expect_libm in cases:
+            with self.subTest(version=version, system=system, cpu=cpu, archives=bool(archives)):
+                flags, root = self._llvm_flang_runtime_flags(version, system, cpu, archives)
+                libdir = os.path.realpath(os.path.join(root, 'lib'))
+                if archives or os.path.isdir(libdir):
+                    if os.path.isdir(libdir):
+                        self.assertIn('-L' + libdir, flags)
+                for name in expected_libs:
+                    self.assertIn(name, flags)
+                linked = [flag for flag in flags if flag.startswith('-l')]
+                self.assertEqual(linked, expected_libs + (['-lm'] if expect_libm else []))
+                if '-lFortranDecimal' in flags and '-lm' in flags:
+                    self.assertLess(flags.index('-lFortranDecimal'), flags.index('-lm'))
+                if '-lflang_rt.runtime' in flags:
+                    self.assertNotIn('-lFortranDecimal', flags)
+                    self.assertNotIn('-lFortranRuntime', flags)
+
+    def test_llvm_flang_runtime_uses_compiler_lib_dirs(self):
+        archives = [
+            'custom/libFortranRuntime.so',
+            'custom/libFortranDecimal.so.20',
+        ]
+        flags, root = self._llvm_flang_runtime_flags(
+            '20.1.2', 'linux', 'x86_64', archives, compiler_dirs=['custom'])
+        custom = os.path.realpath(os.path.join(root, 'custom'))
+        self.assertEqual(flags, [
+            '-L' + custom,
+            '-lFortranRuntime',
+            '-lFortranDecimal',
+            '-lm',
+        ])
 
     def test_compiler_args_class_visualstudio(self):
         env = get_fake_env()

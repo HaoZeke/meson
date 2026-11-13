@@ -640,25 +640,153 @@ class LlvmFlangFortranCompiler(ClangCompiler, FortranCompiler):
         # https://github.com/llvm/llvm-project/issues/92459
         return []
 
+    def _flang_compiler_prefix(self) -> T.Optional[str]:
+        if not self.exelist:
+            return None
+        compiler = os.path.realpath(self.exelist[0])
+        return os.path.dirname(os.path.dirname(compiler))
+
+    def _flang_prefix_libdir(self) -> T.Optional[str]:
+        # flang 20 has no -print-search-dirs. The runtime archives
+        # live in <prefix>/lib next to <prefix>/bin/flang.
+        prefix = self._flang_compiler_prefix()
+        if prefix is None:
+            return None
+        libdir = os.path.join(prefix, 'lib')
+        if os.path.isdir(libdir):
+            return libdir
+        return None
+
+    @staticmethod
+    def _flang_runtime_filename(filename: str, name: str) -> bool:
+        # Unix archives are lib<name>.a/.so. MSVC uses <name>.lib.
+        # LLVM 21 names the runtime flang_rt.runtime, so the file is
+        # libflang_rt.runtime.a or flang_rt.runtime.lib.
+        for candidate in (f'lib{name}', name):
+            if not filename.startswith(candidate + '.'):
+                continue
+            rest = filename[len(candidate):]
+            if rest in {'.a', '.so', '.dylib', '.lib', '.dll.a'} or rest.startswith('.so.'):
+                return True
+        return False
+
+    def _flang_runtime_present(self, libdir: str, name: str) -> bool:
+        if not libdir or not os.path.isdir(libdir):
+            return False
+        try:
+            entries = os.listdir(libdir)
+        except OSError:
+            return False
+        return any(self._flang_runtime_filename(entry, name) for entry in entries)
+
+    def _flang_resource_libdirs(self) -> T.List[str]:
+        # LLVM 21 installs libflang_rt.runtime next to libclang_rt,
+        # under lib/clang/<major>/lib/<triple>/.
+        prefix = self._flang_compiler_prefix()
+        if prefix is None:
+            return []
+        clang = os.path.join(prefix, 'lib', 'clang')
+        if not os.path.isdir(clang):
+            return []
+        found: T.List[str] = []
+        for major in sorted(os.listdir(clang)):
+            base = os.path.join(clang, major, 'lib')
+            if not os.path.isdir(base):
+                continue
+            found.append(base)
+            for entry in sorted(os.listdir(base)):
+                triple = os.path.join(base, entry)
+                if os.path.isdir(triple):
+                    found.append(triple)
+        return found
+
+    def _flang_machine(self) -> T.Optional[T.Any]:
+        environment = getattr(self, 'environment', None)
+        for_machine = getattr(self, 'for_machine', None)
+        if environment is None or for_machine is None:
+            return None
+        machines = getattr(environment, 'machines', None)
+        if not machines:
+            return None
+        return machines[for_machine]
+
+    def _targets_windows(self) -> bool:
+        info = self._flang_machine()
+        if info is None:
+            return False
+        is_windows = getattr(info, 'is_windows', None)
+        return bool(is_windows()) if callable(is_windows) else False
+
+    def _is_windows_arm64(self) -> bool:
+        info = self._flang_machine()
+        if info is None or not self._targets_windows():
+            return False
+        return getattr(info, 'cpu_family', None) in {'aarch64', 'arm64'}
+
+    def _flang_runtime_link_names(self, libdirs: T.List[str]) -> T.Tuple[T.List[str], T.List[str]]:
+        # LLVM 17 through 20 ship FortranRuntime and FortranDecimal.
+        # LLVM 21 renamed the runtime to flang_rt.runtime and folded
+        # FortranDecimal into it. Pick whichever archive is installed.
+        runtime_name: T.Optional[str] = None
+        runtime_dir: T.Optional[str] = None
+        decimal_dir: T.Optional[str] = None
+        for libdir in libdirs:
+            if runtime_name != 'flang_rt.runtime' and self._flang_runtime_present(libdir, 'flang_rt.runtime'):
+                runtime_name = 'flang_rt.runtime'
+                runtime_dir = libdir
+            elif runtime_name is None and self._flang_runtime_present(libdir, 'FortranRuntime'):
+                runtime_name = 'FortranRuntime'
+                runtime_dir = libdir
+            if decimal_dir is None and self._flang_runtime_present(libdir, 'FortranDecimal'):
+                decimal_dir = libdir
+        used: T.List[str] = []
+        if runtime_name == 'flang_rt.runtime':
+            if runtime_dir:
+                used.append(runtime_dir)
+            return ['-lflang_rt.runtime'], used
+        if runtime_name == 'FortranRuntime':
+            flags = ['-lFortranRuntime']
+            if runtime_dir:
+                used.append(runtime_dir)
+            if decimal_dir is not None:
+                flags.append('-lFortranDecimal')
+                if decimal_dir not in used:
+                    used.append(decimal_dir)
+            return flags, used
+        if version_compare(self.version, '>=21'):
+            return ['-lflang_rt.runtime'], []
+        return ['-lFortranRuntime', '-lFortranDecimal'], []
+
     def language_stdlib_only_link_flags(self) -> T.List[str]:
-        # matching setup from ClassicFlangFortranCompiler
-        search_dirs: T.List[str] = []
-        search_dirs.extend(f'-L{d}' for d in self.get_compiler_dirs('libraries'))
-        if not search_dirs and self.exelist:
-            # flang 20 has no -print-search-dirs. The runtime archives
-            # live in <prefix>/lib next to <prefix>/bin/flang.
-            compiler = os.path.realpath(self.exelist[0])
-            libdir = os.path.join(os.path.dirname(os.path.dirname(compiler)), 'lib')
-            if os.path.isdir(libdir):
-                search_dirs.append('-L' + libdir)
-        # This is used when a non-flang linker (typically the C
-        # compiler) links the Fortran objects. That linker does not
-        # add the flang runtime, on any flang version. The flang
-        # driver itself does, which is why a pure Fortran link does
-        # not need these. libm provides pow and feraiseexcept, which
-        # libFortranRuntime references and the C driver does not pull in.
-        search_dirs += ['-lFortranRuntime', '-lFortranDecimal', '-lm']
-        return search_dirs
+        # A non-flang linker (typically the C compiler) does not add
+        # the flang runtime. The flang driver itself does, which is
+        # why a pure Fortran link does not need these.
+        compiler_dirs = list(self.get_compiler_dirs('libraries'))
+        search_dirs = list(compiler_dirs)
+        if not search_dirs:
+            prefix_lib = self._flang_prefix_libdir()
+            if prefix_lib:
+                search_dirs.append(prefix_lib)
+        probe_dirs = list(search_dirs)
+        for directory in self._flang_resource_libdirs():
+            if directory not in probe_dirs:
+                probe_dirs.append(directory)
+        # Windows ARM64 flang >= 19 does not ship FortranRuntime.lib,
+        # and naming it fails the link. The objects already reference
+        # the runtime. https://github.com/mesonbuild/meson/pull/14685
+        if self._is_windows_arm64() and not version_compare(self.version, '<19'):
+            return [f'-L{directory}' for directory in search_dirs]
+        lib_flags, used_dirs = self._flang_runtime_link_names(probe_dirs)
+        flags = [f'-L{directory}' for directory in search_dirs]
+        for directory in used_dirs:
+            arg = '-L' + directory
+            if arg not in flags:
+                flags.append(arg)
+        flags.extend(lib_flags)
+        # libm provides pow and feraiseexcept. Windows has no libm.
+        if not self._targets_windows():
+            flags.append('-lm')
+        return flags
 
 
 class Open64FortranCompiler(FortranCompiler):
