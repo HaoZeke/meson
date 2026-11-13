@@ -710,3 +710,91 @@ class NAGFortranCompiler(FortranCompiler):
 
     def openmp_flags(self) -> T.List[str]:
         return ['-openmp']
+
+
+class LFortranFortranCompiler(FortranCompiler):
+
+    """LFortran (https://lfortran.org).
+
+    The driver parses several GNU-looking flags as something else:
+    ``-shared`` is ``-s``, ``-cpp`` is ``-c``, ``-Wall`` is the linker
+    ``-W``, and ``-fvisibility`` is rejected. Module files use ``-J``.
+    """
+
+    id = 'lfortran'
+    LINKER_OPTION_STYLE = ManyInOneLinkerOptionStyle('-Wl,', ',')
+
+    def __init__(self, exelist: T.List[str], version: str, for_machine: MachineChoice,
+                 env: Environment, linker: T.Optional['DynamicLinker'] = None,
+                 full_version: T.Optional[str] = None):
+        FortranCompiler.__init__(self, exelist, version, for_machine,
+                                 env, linker=linker, full_version=full_version)
+        # -Wall is the linker -W flag. Leave every warning level empty.
+        self.warn_args = {'0': [],
+                          '1': [],
+                          '2': [],
+                          '3': [],
+                          'everything': []}
+
+    def get_always_args(self) -> T.List[str]:
+        # .f is free form unless asked, a module procedure is omitted
+        # from the object file, and an external call wants an explicit
+        # interface. Implicit typing and the trailing underscore stay
+        # off: they change the language and the C ABI.
+        return [
+            '--implicit-interface',
+            '--fixed-form-infer',
+            '--separate-compilation',
+            '--print-leading-space',
+        ]
+
+    def get_module_outdir_args(self, path: str) -> T.List[str]:
+        return ['-J' + path]
+
+    def get_preprocess_only_args(self) -> T.List[str]:
+        # -cpp is parsed as -c, and -P is not a preprocessor flag.
+        return ['--cpp', '-E']
+
+    def get_no_optimization_args(self) -> T.List[str]:
+        # -U_FORTIFY_SOURCE is not an LFortran flag.
+        return ['-O0']
+
+    def get_werror_args(self) -> T.List[str]:
+        return []
+
+    def get_include_args(self, path: str, is_system: bool) -> T.List[str]:
+        if path == '':
+            path = '.'
+        return ['-I' + path]
+
+    def get_pie_args(self) -> T.List[str]:
+        return ['-fPIE']
+
+    def gnu_symbol_visibility_args(self, vistype: str) -> T.List[str]:
+        # -fvisibility is rejected. The keyword is a no-op.
+        return []
+
+    def language_stdlib_only_link_flags(self) -> T.List[str]:
+        # A C link of a Fortran object does not get the runtime that the
+        # LFortran driver would have added itself.
+        # liblfortran_runtime references libm (for example pow).
+        flags = ['-llfortran_runtime', '-lm']
+        libdir = self._runtime_libdir()
+        if libdir:
+            flags = [f'-L{libdir}', f'-Wl,-rpath,{libdir}'] + flags
+        return flags
+
+    def _runtime_libdir(self) -> T.Optional[str]:
+        import shutil
+        exe = self.exelist[0] if self.exelist else ''
+        found = shutil.which(exe) or exe
+        if not found or not os.path.isfile(found):
+            return None
+        root = os.path.dirname(os.path.dirname(os.path.realpath(found)))
+        libdir = os.path.join(root, 'share', 'lfortran', 'lib')
+        if not os.path.isdir(libdir):
+            return None
+        for name in os.listdir(libdir):
+            if name.startswith('liblfortran_runtime.so'):
+                return libdir
+        return None

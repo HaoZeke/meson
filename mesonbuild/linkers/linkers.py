@@ -1021,6 +1021,21 @@ class GnuBFDDynamicLinker(GnuDynamicLinker):
     id = 'ld.bfd'
 
 
+class LFortranDynamicLinker(GnuBFDDynamicLinker):
+
+    """LFortran drives the link itself and rejects ``-shared`` and ``-pie``.
+
+    ``lfortran -Wl,--version`` does not print a GNU ld banner, so this
+    linker is selected by the compiler id rather than by probing.
+    """
+
+    def get_std_shared_lib_args(self) -> T.List[str]:
+        return ['--shared']
+
+    def get_pie_args(self) -> T.List[str]:
+        return []
+
+
 class MoldDynamicLinker(GnuDynamicLinker):
 
     id = 'ld.mold'
