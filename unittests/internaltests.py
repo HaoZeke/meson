@@ -528,6 +528,8 @@ InstalledDir: /usr/bin'''), '14.0.0-1ubuntu1.1')
             self.assertIn('-L' + os.path.realpath(libdir), flags)
             self.assertIn('-lFortranRuntime', flags)
             self.assertIn('-lFortranDecimal', flags)
+            self.assertIn('-lm', flags)
+            self.assertLess(flags.index('-lFortranDecimal'), flags.index('-lm'))
 
     def test_compiler_args_class_visualstudio(self):
         env = get_fake_env()

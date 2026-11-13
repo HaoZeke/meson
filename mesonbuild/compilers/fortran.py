@@ -655,8 +655,9 @@ class LlvmFlangFortranCompiler(ClangCompiler, FortranCompiler):
         # compiler) links the Fortran objects. That linker does not
         # add the flang runtime, on any flang version. The flang
         # driver itself does, which is why a pure Fortran link does
-        # not need these.
-        search_dirs += ['-lFortranRuntime', '-lFortranDecimal']
+        # not need these. libm provides pow and feraiseexcept, which
+        # libFortranRuntime references and the C driver does not pull in.
+        search_dirs += ['-lFortranRuntime', '-lFortranDecimal', '-lm']
         return search_dirs
 
 
