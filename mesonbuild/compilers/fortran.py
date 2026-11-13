@@ -644,16 +644,19 @@ class LlvmFlangFortranCompiler(ClangCompiler, FortranCompiler):
         # matching setup from ClassicFlangFortranCompiler
         search_dirs: T.List[str] = []
         search_dirs.extend(f'-L{d}' for d in self.get_compiler_dirs('libraries'))
-        # does not automatically link to Fortran_main anymore after
-        # https://github.com/llvm/llvm-project/commit/9d6837d595719904720e5ff68ec1f1a2665bdc2f
-        # note that this changed again in flang 19 with
-        # https://github.com/llvm/llvm-project/commit/8d5386669ed63548daf1bee415596582d6d78d7d;
-        # it seems flang 18 doesn't work if something accidentally includes a program unit, see
-        # https://github.com/llvm/llvm-project/issues/92496
-        # Only link FortranRuntime and FortranDecimal for flang < 19, see
-        # https://github.com/scipy/scipy/issues/21562#issuecomment-2942938509
-        if version_compare(self.version, '<19'):
-            search_dirs += ['-lFortranRuntime', '-lFortranDecimal']
+        if not search_dirs and self.exelist:
+            # flang 20 has no -print-search-dirs. The runtime archives
+            # live in <prefix>/lib next to <prefix>/bin/flang.
+            compiler = os.path.realpath(self.exelist[0])
+            libdir = os.path.join(os.path.dirname(os.path.dirname(compiler)), 'lib')
+            if os.path.isdir(libdir):
+                search_dirs.append('-L' + libdir)
+        # This is used when a non-flang linker (typically the C
+        # compiler) links the Fortran objects. That linker does not
+        # add the flang runtime, on any flang version. The flang
+        # driver itself does, which is why a pure Fortran link does
+        # not need these.
+        search_dirs += ['-lFortranRuntime', '-lFortranDecimal']
         return search_dirs
 
 

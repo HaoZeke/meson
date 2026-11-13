@@ -509,6 +509,26 @@ InstalledDir: /usr/bin'''), '14.0.0-1ubuntu1.1')
             args = compiler.get_compiler_check_args(mode)
             self.assertFalse(any(arg.startswith('-Werror=') for arg in args))
 
+    def test_llvm_flang_stdlib_links_runtime_from_prefix(self):
+        import tempfile
+        from mesonbuild.compilers.fortran import LlvmFlangFortranCompiler
+        with tempfile.TemporaryDirectory() as root:
+            bindir = os.path.join(root, 'bin')
+            libdir = os.path.join(root, 'lib')
+            os.makedirs(bindir)
+            os.makedirs(libdir)
+            compiler_path = os.path.join(bindir, 'flang')
+            with open(compiler_path, 'w', encoding='utf-8') as handle:
+                handle.write('')
+            compiler = object.__new__(LlvmFlangFortranCompiler)
+            compiler.exelist = [compiler_path]
+            compiler.version = '20.1.2'
+            with mock.patch.object(compiler, 'get_compiler_dirs', return_value=[]):
+                flags = compiler.language_stdlib_only_link_flags()
+            self.assertIn('-L' + os.path.realpath(libdir), flags)
+            self.assertIn('-lFortranRuntime', flags)
+            self.assertIn('-lFortranDecimal', flags)
+
     def test_compiler_args_class_visualstudio(self):
         env = get_fake_env()
         linker = linkers.MSVCDynamicLinker(env, MachineChoice.HOST, [])
