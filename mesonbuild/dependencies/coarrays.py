@@ -64,20 +64,38 @@ class CoarrayDependency(SystemDependency):
         super().__init__(name, environment, kwargs)
 
         cid = self.get_compiler().get_id()
+        flags = self.builtin_flags(cid)
+        if flags is None:
+            # No built-in implementation. The dependency stays not-found,
+            # which is how pgi, classic flang and llvm-flang are reported.
+            return
+        compile_args, link_args = flags
+        self.is_found = True
+        self.compile_args = compile_args
+        self.link_args = link_args
         if cid == 'gcc':
-            # Fallback to single image
-            self.compile_args = ['-fcoarray=single']
             self.version = 'single image (fallback)'
-            self.is_found = True
-        elif cid == 'intel':
-            # Coarrays are built into Intel compilers, no external library needed
-            self.is_found = True
-            self.link_args = ['-coarray=shared']
-            self.compile_args = self.link_args
-        elif cid == 'intel-cl':
-            # Coarrays are built into Intel compilers, no external library needed
-            self.is_found = True
-            self.compile_args = ['/Qcoarray:shared']
-        elif cid == 'nagfor':
+
+    @staticmethod
+    def builtin_flags(compiler_id: str) -> T.Optional[T.Tuple[T.List[str], T.List[str]]]:
+        '''Compile and link arguments for a compiler with built-in coarrays.
+
+        ``None`` means this compiler has none. ifx (``intel-llvm``) uses the
+        same ``-coarray=shared`` as classic ifort. ``-coarray=single`` is the
+        one-image mode; ``shared`` follows ``FOR_COARRAY_NUM_IMAGES``.
+        Windows ifx (``intel-llvm-cl``) uses ``/Qcoarray:shared``, and that
+        flag is also needed at link time.
+        '''
+        if compiler_id == 'gcc':
+            # Fallback to single image. OpenCoarrays is tried first by the factory.
+            return ['-fcoarray=single'], []
+        if compiler_id in {'intel', 'intel-llvm'}:
+            shared = ['-coarray=shared']
+            return shared, shared
+        if compiler_id in {'intel-cl', 'intel-llvm-cl'}:
+            shared = ['/Qcoarray:shared']
+            return shared, shared
+        if compiler_id == 'nagfor':
             # NAG doesn't require any special arguments for Coarray
-            self.is_found = True
+            return [], []
+        return None

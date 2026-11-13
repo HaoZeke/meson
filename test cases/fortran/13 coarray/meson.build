@@ -3,8 +3,11 @@ project('Fortran coarray', 'fortran',
 
 fc = meson.get_compiler('fortran')
 
-if ['pgi', 'flang'].contains(fc.get_id())
-  error('MESON_SKIP_TEST: At least through PGI 19.10 and Flang 7.1 do not support Fortran Coarrays.')
+if ['pgi', 'flang', 'llvm-flang'].contains(fc.get_id())
+  # LLVM Flang 20 has no coarray implementation: num_images is
+  # "not yet implemented", and the driver has no OpenCoarrays or
+  # Caffeine mode. Same skip as classic Flang and PGI.
+  error('MESON_SKIP_TEST: At least through PGI 19.10, classic Flang 7.1, and LLVM Flang 20 do not support Fortran Coarrays.')
 endif
 
 # coarray is required because single-image fallback is an intrinsic feature

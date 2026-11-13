@@ -3448,3 +3448,18 @@ InstalledDir: /usr/bin'''), '14.0.0-1ubuntu1.1')
         self.assertFalse(is_lib_filename('libfoo.so.txt'))
         self.assertFalse(is_lib_filename('foo.c'))
         self.assertFalse(is_lib_filename('foo.exe'))
+
+    def test_intel_coarray_builtin_flags(self) -> None:
+        from mesonbuild.dependencies.coarrays import CoarrayDependency
+        shared = (['-coarray=shared'], ['-coarray=shared'])
+        windows = (['/Qcoarray:shared'], ['/Qcoarray:shared'])
+        self.assertEqual(CoarrayDependency.builtin_flags('intel'), shared)
+        self.assertEqual(CoarrayDependency.builtin_flags('intel-llvm'), shared)
+        self.assertEqual(CoarrayDependency.builtin_flags('intel-cl'), windows)
+        self.assertEqual(CoarrayDependency.builtin_flags('intel-llvm-cl'), windows)
+        self.assertEqual(CoarrayDependency.builtin_flags('gcc'), (['-fcoarray=single'], []))
+        self.assertEqual(CoarrayDependency.builtin_flags('nagfor'), ([], []))
+        # No built-in support: the dependency stays not-found.
+        self.assertIsNone(CoarrayDependency.builtin_flags('llvm-flang'))
+        self.assertIsNone(CoarrayDependency.builtin_flags('flang'))
+        self.assertIsNone(CoarrayDependency.builtin_flags('pgi'))
