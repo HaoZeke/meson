@@ -14,14 +14,20 @@ executable('std_legacy', 'legacy.f', override_options : ['fortran_std=legacy'])
 
 executable('std_95', 'std95.f90', override_options : ['fortran_std=f95'])
 
-executable('std_f2003', 'std2003.f90', override_options : ['fortran_std=f2003'])
+# LLVM Flang 20 rejects assignment to a polymorphic dummy in a pure
+# elemental subroutine. The only accepted -std= value is f2018, and that
+# flag does not relax the check, so the f2003, f2008 and f2018 samples
+# do not compile. legacy and f95 do.
+if fc.get_id() != 'llvm-flang'
+  executable('std_f2003', 'std2003.f90', override_options : ['fortran_std=f2003'])
 
-executable('std_f2008', 'std2008.f90', override_options : ['fortran_std=f2008'])
+  executable('std_f2008', 'std2008.f90', override_options : ['fortran_std=f2008'])
 
-if fc.get_id() == 'gcc'
-  if fc.version().version_compare('>=8.0')
+  if fc.get_id() == 'gcc'
+    if fc.version().version_compare('>=8.0')
+      executable('std_f2018', 'std2018.f90', override_options : ['fortran_std=f2018'])
+    endif
+  else
     executable('std_f2018', 'std2018.f90', override_options : ['fortran_std=f2018'])
   endif
-else
-  executable('std_f2018', 'std2018.f90', override_options : ['fortran_std=f2018'])
 endif

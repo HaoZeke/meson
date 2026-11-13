@@ -3,8 +3,9 @@ project('Fortran coarray', 'fortran',
 
 fc = meson.get_compiler('fortran')
 
-if ['pgi', 'flang'].contains(fc.get_id())
-  error('MESON_SKIP_TEST: At least through PGI 19.10 and Flang 7.1 do not support Fortran Coarrays.')
+if ['pgi', 'flang', 'llvm-flang'].contains(fc.get_id())
+  error('MESON_SKIP_TEST: PGI, classic Flang, and LLVM Flang do not support Fortran coarrays. ' +
+        'LLVM Flang 20 aborts while lowering num_images.')
 endif
 
 # coarray is required because single-image fallback is an intrinsic feature
