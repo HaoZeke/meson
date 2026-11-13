@@ -435,8 +435,17 @@ class IntelFortranCompiler(IntelGnuLikeCompiler, FortranCompiler):
         return ['-warn', 'errors']
 
     def language_stdlib_only_link_flags(self) -> T.List[str]:
-        # TODO: needs default search path added
-        return ['-lifcore', '-limf']
+        # ifx/ifort do not implement -print-search-dirs. Their runtimes
+        # live in <prefix>/lib next to <prefix>/bin/<compiler>. A C
+        # linker driving a Python extension does not search that
+        # directory, so -lifcore/-limf are otherwise not found.
+        flags: T.List[str] = []
+        if self.exelist:
+            compiler = os.path.realpath(self.exelist[0])
+            libdir = os.path.join(os.path.dirname(os.path.dirname(compiler)), 'lib')
+            if os.path.isdir(libdir):
+                flags.append('-L' + libdir)
+        return flags + ['-lifcore', '-limf']
 
     def get_dependency_gen_args(self, outtarget: str, outfile: str) -> T.List[str]:
         return ['-gen-dep=' + outtarget, '-gen-depformat=make']

@@ -501,6 +501,25 @@ InstalledDir: /usr/bin'''), '14.0.0-1ubuntu1.1')
                     with mock.patch.object(compiler, 'get_compileropt_value', return_value=standard):
                         self.assertEqual(compiler.get_option_std_args(None), expected)
 
+    def test_intel_fortran_stdlib_link_uses_prefix_lib(self):
+        import tempfile
+        from mesonbuild.compilers.fortran import IntelFortranCompiler, IntelLLVMFortranCompiler
+        with tempfile.TemporaryDirectory() as root:
+            bindir = os.path.join(root, 'bin')
+            libdir = os.path.join(root, 'lib')
+            os.makedirs(bindir)
+            os.makedirs(libdir)
+            compiler_path = os.path.join(bindir, 'ifx')
+            with open(compiler_path, 'w', encoding='utf-8') as handle:
+                handle.write('')
+            for compiler_class in (IntelFortranCompiler, IntelLLVMFortranCompiler):
+                compiler = object.__new__(compiler_class)
+                compiler.exelist = [compiler_path]
+                flags = compiler.language_stdlib_only_link_flags()
+                self.assertIn('-L' + os.path.realpath(libdir), flags)
+                self.assertIn('-lifcore', flags)
+                self.assertIn('-limf', flags)
+
     def test_compiler_args_class_visualstudio(self):
         env = get_fake_env()
         linker = linkers.MSVCDynamicLinker(env, MachineChoice.HOST, [])
