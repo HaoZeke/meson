@@ -439,11 +439,17 @@ class IntelFortranCompiler(IntelGnuLikeCompiler, FortranCompiler):
 
         Those drivers do not implement ``-print-search-dirs``. The
         runtime libraries live next to ``<prefix>/bin/<compiler>``,
-        which a C linker does not search.
+        which a C linker does not search. ``exelist`` may be a bare
+        name on ``PATH``.
         '''
         if not self.exelist:
             return []
-        compiler = os.path.realpath(self.exelist[0])
+        import shutil
+        exe = self.exelist[0]
+        found = shutil.which(exe) or exe
+        if not os.path.isfile(found):
+            return []
+        compiler = os.path.realpath(found)
         libdir = os.path.join(os.path.dirname(os.path.dirname(compiler)), 'lib')
         if os.path.isdir(libdir):
             return ['-L' + libdir]
