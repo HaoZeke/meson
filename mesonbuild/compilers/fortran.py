@@ -441,6 +441,16 @@ class IntelFortranCompiler(IntelGnuLikeCompiler, FortranCompiler):
     def get_dependency_gen_args(self, outtarget: str, outfile: str) -> T.List[str]:
         return ['-gen-dep=' + outtarget, '-gen-depformat=make']
 
+    def get_source_compile_args(self, src: str) -> T.List[str]:
+        # ifx (and ifort) do not treat .f95/.f03/.f08 as source files:
+        # "warning #10145: no action performed", exit 0, no object.
+        # -free must come before -Tf so the forced file is free-form.
+        # Fixed-form suffixes (.f, .for, .ftn, .fpp) keep the default.
+        suffix = os.path.splitext(src)[1].lower()
+        if suffix in {'.f95', '.f03', '.f08'}:
+            return ['-free', '-Tf']
+        return []
+
 
 class IntelLLVMFortranCompiler(IntelLLVMLikeCompiler, IntelFortranCompiler):
 

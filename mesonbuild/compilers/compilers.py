@@ -1291,6 +1291,14 @@ class Compiler(HoldableObject, metaclass=SimpleABC):
     def get_compile_only_args(self) -> T.List[str]:
         return []
 
+    def get_source_compile_args(self, src: str) -> T.List[str]:
+        '''Extra arguments for one source file, placed immediately before it.
+
+        Used when a flag must apply to that file and not to a later option,
+        for example Intel's ``-Tf <file>``.
+        '''
+        return []
+
     def get_preprocess_only_args(self) -> T.List[str]:
         raise EnvironmentException('This compiler does not have a preprocessor')
 

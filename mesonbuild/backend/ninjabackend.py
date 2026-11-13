@@ -2762,7 +2762,9 @@ https://gcc.gnu.org/bugzilla/show_bug.cgi?id=47485'''))
         else:
             depargs = NinjaCommandArg.list(compiler.get_dependency_gen_args('$out', '$DEPFILE'), Quoting.none)
         command = compiler.get_exelist()
-        args = ['$ARGS'] + depargs + NinjaCommandArg.list(compiler.get_output_args('$out'), Quoting.none) + compiler.get_compile_only_args() + ['$in']
+        # $IN_ARGS sits immediately before $in. Intel -Tf consumes the
+        # next argument, so it cannot live in $ARGS.
+        args = ['$ARGS'] + depargs + NinjaCommandArg.list(compiler.get_output_args('$out'), Quoting.none) + compiler.get_compile_only_args() + ['$IN_ARGS', '$in']
         description = f'Compiling {compiler.get_display_language()} object $out'
         if compiler.get_depfile_format() == 'msvc':
             deps = 'msvc'
@@ -3288,6 +3290,7 @@ https://gcc.gnu.org/bugzilla/show_bug.cgi?id=47485'''))
 
         # Add MSVC debug file generation compile flags: /Fd /FS
         commands += self.get_compile_debugfile_args(compiler, target, rel_obj)
+        source_args = compiler.get_source_compile_args(rel_src if isinstance(src, File) else str(src))
 
         # PCH handling. We only support PCH for C and C++
         if compiler.language in {'c', 'cpp'} and target.has_pch() and self.target_uses_pch(target):
@@ -3378,6 +3381,8 @@ https://gcc.gnu.org/bugzilla/show_bug.cgi?id=47485'''))
                 return result
             element.add_item('CUDA_ESCAPED_TARGET', quote_make_target(rel_obj))
         element.add_item('ARGS', commands)
+        if source_args:
+            element.add_item('IN_ARGS', source_args)
 
         # NinjaRule.should_use_rspfile counts element.elems too, which will
         # exceed the RSP threshold only after added
@@ -3389,7 +3394,7 @@ https://gcc.gnu.org/bugzilla/show_bug.cgi?id=47485'''))
             # a CompilerArgs.
             if dep_file:
                 commands += compiler.get_dependency_gen_args(rel_obj, dep_file)
-            commands += [*compiler.get_output_args(rel_obj), *compiler.get_compile_only_args(), rel_src]
+            commands += [*compiler.get_output_args(rel_obj), *compiler.get_compile_only_args(), *source_args, rel_src]
 
             element.rulename = 'CUSTOM_COMMAND'
             meson_exe_cmd, reason = self.as_meson_exe_cmdline(exe[0],

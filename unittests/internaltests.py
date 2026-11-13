@@ -501,6 +501,19 @@ InstalledDir: /usr/bin'''), '14.0.0-1ubuntu1.1')
                     with mock.patch.object(compiler, 'get_compileropt_value', return_value=standard):
                         self.assertEqual(compiler.get_option_std_args(None), expected)
 
+    def test_intel_fortran_free_suffix_needs_tf(self):
+        # ifx warning #10145: a .f95/.f03/.f08 is not a source file unless
+        # -Tf names it, and -free has to come first so that file is free-form.
+        from mesonbuild.compilers.fortran import IntelFortranCompiler, IntelLLVMFortranCompiler
+        for compiler_class in (IntelFortranCompiler, IntelLLVMFortranCompiler):
+            compiler = object.__new__(compiler_class)
+            self.assertEqual(compiler.get_source_compile_args('src/Wigner3j.f95'), ['-free', '-Tf'])
+            self.assertEqual(compiler.get_source_compile_args('mod.F03'), ['-free', '-Tf'])
+            self.assertEqual(compiler.get_source_compile_args('mod.f08'), ['-free', '-Tf'])
+            self.assertEqual(compiler.get_source_compile_args('legacy.f'), [])
+            self.assertEqual(compiler.get_source_compile_args('modern.f90'), [])
+            self.assertEqual(compiler.get_source_compile_args('prep.FPP'), [])
+
     def test_compiler_args_class_visualstudio(self):
         env = get_fake_env()
         linker = linkers.MSVCDynamicLinker(env, MachineChoice.HOST, [])
